@@ -192,12 +192,17 @@ class DBConfig:
         return self.get(f"pools.{pool_name}", default_core)
 
     def enabled_pools(self) -> list[str]:
-        """Devuelve los nombres de pools habilitados."""
+        """
+        Devuelve los nombres de pools habilitados.
+        Descubre dinámicamente todos los pools.* configurados.
+        """
         pools = []
-        for name in ("core", "tactical"):
-            cfg = self.get(f"pools.{name}")
-            if cfg and cfg.get("enabled", True):
+        for key, value in (self._cache or {}).items():
+            if not key.startswith("pools."):
+                continue
+            name = key.split(".", 1)[1]
+            if isinstance(value, dict) and value.get("enabled", True):
                 pools.append(name)
         if not pools:
             pools = ["core"]
-        return pools
+        return sorted(pools)
