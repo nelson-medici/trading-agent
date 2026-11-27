@@ -7,13 +7,21 @@ import { Activity, Wallet, Brain, Settings as SettingsIcon, Shield, Terminal, Wi
 
 type View = "overview" | "portfolio" | "decisions" | "config" | "control";
 
+// Configuración ya NO está en la nav principal — es un CTA en el header
 const NAV: { id: View; label: string; icon: any; href: string }[] = [
   { id: "overview", label: "Overview", icon: Activity, href: "/" },
   { id: "portfolio", label: "Portafolio", icon: Wallet, href: "/portfolio" },
   { id: "decisions", label: "Decisiones", icon: Brain, href: "/decisions" },
-  { id: "config", label: "Configuración", icon: SettingsIcon, href: "/config" },
   { id: "control", label: "Control", icon: Shield, href: "/control" },
 ];
+
+const VIEW_META: Record<View, { label: string }> = {
+  overview: { label: "Overview" },
+  portfolio: { label: "Portafolio" },
+  decisions: { label: "Decisiones" },
+  config: { label: "Configuración" },
+  control: { label: "Control" },
+};
 
 export default function Shell({ current, children }: { current: View; children: React.ReactNode }) {
   const [now, setNow] = useState(new Date());
@@ -38,7 +46,7 @@ export default function Shell({ current, children }: { current: View; children: 
     router.push("/login");
   }
 
-  const currentView = NAV.find((v) => v.id === current)!;
+  const currentMeta = VIEW_META[current];
 
   return (
     <div className="min-h-screen bg-black text-zinc-200 font-mono">
@@ -55,12 +63,24 @@ export default function Shell({ current, children }: { current: View; children: 
               <div className="text-[9px] uppercase tracking-[0.2em] text-zinc-600 -mt-1">portfolio · risk · execution</div>
             </div>
           </div>
-          <div className="flex items-center gap-4 text-[11px]">
+          <div className="flex items-center gap-3 text-[11px]">
             <div className="hidden md:flex items-center gap-2">
               <span className="w-1.5 h-1.5 rounded-full bg-lime-400 animate-pulse" />
               <span className="text-zinc-400">dev · paper broker</span>
             </div>
-            <div className="text-zinc-500">{now.toISOString().slice(0, 19).replace("T", " ")} <span className="text-zinc-700">UTC</span></div>
+            <div className="hidden lg:block text-zinc-500">{now.toISOString().slice(0, 19).replace("T", " ")} <span className="text-zinc-700">UTC</span></div>
+
+            {/* CTA Configuración */}
+            <Link href="/config"
+              title="Configuración del sistema"
+              className={`flex items-center gap-1.5 border px-2 py-1 transition-colors ${
+                current === "config"
+                  ? "border-lime-500 text-lime-400 bg-lime-950/30"
+                  : "border-zinc-800 text-zinc-400 hover:text-zinc-200 hover:border-zinc-600"
+              }`}>
+              <SettingsIcon className="w-3 h-3" />
+              <span className="hidden md:inline">Config</span>
+            </Link>
 
             {/* User menu */}
             <div className="relative">
@@ -72,7 +92,7 @@ export default function Shell({ current, children }: { current: View; children: 
               {menuOpen && (
                 <>
                   <div className="fixed inset-0 z-40" onClick={() => setMenuOpen(false)} />
-                  <div className="absolute right-0 top-full mt-1 bg-zinc-950 border border-zinc-800 py-1 min-w-[180px] z-50">
+                  <div className="absolute right-0 top-full mt-1 bg-zinc-950 border border-zinc-800 py-1 min-w-[200px] z-50">
                     <div className="px-3 py-2 text-[10px] text-zinc-500 border-b border-zinc-900">
                       <div className="truncate">{email}</div>
                     </div>
@@ -97,7 +117,7 @@ export default function Shell({ current, children }: { current: View; children: 
           ))}
           <div className="ml-auto flex items-center gap-2 text-[10px] text-zinc-500 pr-2">
             <Server className="w-3 h-3" />
-            <span>oracle.cloud</span>
+            <span>engine.local</span>
             <span className="text-zinc-700">·</span>
             <Wifi className="w-3 h-3 text-lime-400" />
           </div>
@@ -105,8 +125,8 @@ export default function Shell({ current, children }: { current: View; children: 
       </header>
 
       <div className="px-4 pt-6 pb-4">
-        <div className="text-[10px] uppercase tracking-[0.25em] text-zinc-600">// {currentView.id}.view</div>
-        <h1 className="text-3xl text-zinc-100 mt-1" style={{ fontFamily: "Fraunces, serif", fontWeight: 300 }}>{currentView.label}</h1>
+        <div className="text-[10px] uppercase tracking-[0.25em] text-zinc-600">// {current}.view</div>
+        <h1 className="text-3xl text-zinc-100 mt-1" style={{ fontFamily: "Fraunces, serif", fontWeight: 300 }}>{currentMeta.label}</h1>
       </div>
 
       <main className="px-4 pb-12">{children}</main>
