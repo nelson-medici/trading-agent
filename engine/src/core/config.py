@@ -173,3 +173,31 @@ class DBConfig:
             "temperature": 0.2,
             "cache_enabled": False,
         })
+
+    def pool(self, pool_name: str) -> dict:
+        """
+        Devuelve la config completa de un pool (core | tactical).
+        Fallback: una copia del core si no está definido.
+        """
+        default_core = {
+            "enabled": True,
+            "weights": self.weights,
+            "thresholds": self.thresholds,
+            "risk_limits": self.risk_limits,
+            "stops": self.stops,
+            "universe": self.universe,
+            "require_risk_on_regime": True,
+            "timeframe": "1h",
+        }
+        return self.get(f"pools.{pool_name}", default_core)
+
+    def enabled_pools(self) -> list[str]:
+        """Devuelve los nombres de pools habilitados."""
+        pools = []
+        for name in ("core", "tactical"):
+            cfg = self.get(f"pools.{name}")
+            if cfg and cfg.get("enabled", True):
+                pools.append(name)
+        if not pools:
+            pools = ["core"]
+        return pools
