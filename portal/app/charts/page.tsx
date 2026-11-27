@@ -89,33 +89,59 @@ export default function ChartsPage() {
     }
   }, [assetClass]);
 
+  // Fetch de velas: 1m/5m directo de Binance API, el resto de Supabase
+  async function fetchCandles(): Promise<Candle[]> {
+    const shortTF = ["1m", "5m"];
+    if (assetClass === "crypto" && shortTF.includes(timeframe)) {
+      // Binance public API — no necesita auth
+      const binanceSymbol = symbol.replace("/", "");
+      const url = `https://api.binance.com/api/v3/klines?symbol=${binanceSymbol}&interval=${timeframe}&limit=${limit}`;
+      try {
+        const resp = await fetch(url);
+        if (!resp.ok) return [];
+        const data = await resp.json();
+        return (data as any[]).map((k: any) => ({
+          time: new Date(k[0]).toISOString(),
+          open: Number(k[1]),
+          high: Number(k[2]),
+          low: Number(k[3]),
+          close: Number(k[4]),
+          volume: Number(k[5]),
+        }));
+      } catch {
+        return [];
+      }
+    }
+    // DB para 15m, 1h, 4h
+    const { data } = await supabase
+      .from("ohlcv")
+      .select("ts, open, high, low, close, volume")
+      .eq("symbol", symbol)
+      .eq("timeframe", timeframe)
+      .order("ts", { ascending: false })
+      .limit(limit);
+    if (!data) return [];
+    return [...data].reverse().map((r: any) => ({
+      time: r.ts,
+      open: Number(r.open),
+      high: Number(r.high),
+      low: Number(r.low),
+      close: Number(r.close),
+      volume: Number(r.volume),
+    }));
+  }
+
   useEffect(() => {
     if (loading) return;
     async function load() {
-      const [ohlcvRes, tradesRes, posRes, sigRes] = await Promise.all([
-        supabase
-          .from("ohlcv")
-          .select("ts, open, high, low, close, volume")
-          .eq("symbol", symbol)
-          .eq("timeframe", timeframe)
-          .order("ts", { ascending: false })
-          .limit(limit),
+      const [candleData, tradesRes, posRes, sigRes] = await Promise.all([
+        fetchCandles(),
         supabase.from("trades").select("*").eq("symbol", symbol).order("exit_at", { ascending: false }).limit(100),
         supabase.from("positions").select("*").eq("symbol", symbol),
         supabase.from("strategy_signals").select("*").eq("symbol", symbol).neq("action", "NONE").order("ts", { ascending: false }).limit(50),
       ]);
-      if (ohlcvRes.data) {
-        const asc = [...ohlcvRes.data].reverse().map((r: any) => ({
-          time: r.ts,
-          open: Number(r.open),
-          high: Number(r.high),
-          low: Number(r.low),
-          close: Number(r.close),
-          volume: Number(r.volume),
-        })) as Candle[];
-        setCandles(asc);
-        if (asc.length > 0) setLastPrice(asc[asc.length - 1].close);
-      }
+      setCandles(candleData);
+      if (candleData.length > 0) setLastPrice(candleData[candleData.length - 1].close);
       if (tradesRes.data) setTrades(tradesRes.data as Trade[]);
       if (posRes.data) setPositions(posRes.data as Position[]);
       if (sigRes.data) setSignals(sigRes.data as StrategySignal[]);
