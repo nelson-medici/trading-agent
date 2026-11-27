@@ -1,10 +1,15 @@
 """
 Análisis de sentimiento con LLM.
 Toma noticias y retorna JSON estructurado con sentiment, materiality, etc.
+
+Soporta dos providers:
+- "groq" (default, gratis) → Llama 3.3 70B
+- "anthropic" → Claude Haiku
+
+Se configura en Supabase config.llm.sentiment
 """
 import json
 import asyncio
-from anthropic import AsyncAnthropic
 import structlog
 from src.core.config import get_env
 
@@ -27,26 +32,59 @@ Noticia:
 
 
 class SentimentAnalyzer:
-    def __init__(self, model: str = "claude-haiku-4-5"):
+    """
+    provider: "groq" o "anthropic"
+    model: nombre del modelo según provider
+      - groq: "llama-3.3-70b-versatile" (default) o "llama-3.1-8b-instant" (más rápido)
+      - anthropic: "claude-haiku-4-5"
+    """
+
+    def __init__(
+        self,
+        provider: str = "groq",
+        model: str | None = None,
+    ):
         env = get_env()
-        self.client = AsyncAnthropic(api_key=env.anthropic_api_key)
-        self.model = model
+        self.provider = provider.lower()
+
+        if self.provider == "groq":
+            from groq import AsyncGroq
+            self.client = AsyncGroq(api_key=env.groq_api_key)
+            self.model = model or "llama-3.3-70b-versatile"
+        elif self.provider == "anthropic":
+            from anthropic import AsyncAnthropic
+            self.client = AsyncAnthropic(api_key=env.anthropic_api_key)
+            self.model = model or "claude-haiku-4-5"
+        else:
+            raise ValueError(f"Unsupported LLM provider: {provider}")
 
     async def analyze(self, symbol: str, text: str) -> dict:
         prompt = PROMPT_TEMPLATE.format(symbol=symbol, text=text[:2000])
+
         try:
-            response = await self.client.messages.create(
-                model=self.model,
-                max_tokens=512,
-                temperature=0.0,
-                messages=[{"role": "user", "content": prompt}],
-            )
-            content = response.content[0].text.strip()
-            # Sacar posibles code fences
+            if self.provider == "groq":
+                response = await self.client.chat.completions.create(
+                    model=self.model,
+                    max_tokens=512,
+                    temperature=0.0,
+                    messages=[{"role": "user", "content": prompt}],
+                    response_format={"type": "json_object"},
+                )
+                content = response.choices[0].message.content.strip()
+            else:
+                response = await self.client.messages.create(
+                    model=self.model,
+                    max_tokens=512,
+                    temperature=0.0,
+                    messages=[{"role": "user", "content": prompt}],
+                )
+                content = response.content[0].text.strip()
+
             if content.startswith("```"):
                 content = content.split("```")[1]
                 if content.startswith("json"):
                     content = content[4:]
+
             data = json.loads(content)
             return {
                 "sentiment": float(data.get("sentiment", 0)),
@@ -60,7 +98,7 @@ class SentimentAnalyzer:
             log.warning("sentiment_json_parse_failed", error=str(e))
             return {}
         except Exception as e:
-            log.error("sentiment_llm_failed", error=str(e))
+            log.error("sentiment_llm_failed", error=str(e), provider=self.provider)
             return {}
 
     async def batch_analyze(self, items: list[tuple[str, str]]) -> list[dict]:
