@@ -11,13 +11,21 @@ import pandas as pd
 
 
 DEFAULTS = {
-    # Entrada
+    # Entrada (modo momentum breakout)
     "breakout_lookback": 15,
     "volume_mult": 1.5,
     "max_spread_pct": 0.0005,
     "max_chase_pct": 0.0015,        # no perseguir si el ask ya se alejó del cierre de ruptura
     "max_extension_atr": 3.0,       # cierre no más de N×ATR por encima de la EMA9
     "max_body_atr": 4.0,            # vela de ruptura no "exhausta"
+    # Entrada (modo RSI reversal)
+    "rsi_period": 7,
+    "rsi_oversold": 20,
+    "rsi_overbought": 80,
+    "rsi_target_rr": 1.5,           # R:R del modo RSI (más conservador)
+    # Selección de modo
+    "scalper_mode": "auto",         # "momentum" | "rsi" | "auto" (auto elige por ADX)
+    "adx_momentum_threshold": 25,   # ADX > esto → momentum; ADX < → RSI
     # Riesgo por trade
     "risk_atr_mult": 1.5,
     "min_risk_pct": 0.003,
@@ -43,6 +51,13 @@ DEFAULTS = {
     # Detector
     "alert_threshold": 75,
     "alert_cooldown_min": 60,
+    # Ventanas horarias activas (UTC)
+    "active_windows_utc": [
+        [13, 17],   # Apertura NYSE (13:00-17:00 UTC)
+        [0, 2],     # Sesión asiática (00:00-02:00 UTC)
+        [7, 9],     # Apertura europea (07:00-09:00 UTC)
+    ],
+    "enforce_windows": True,  # si False, opera a cualquier hora
 }
 
 
@@ -253,4 +268,154 @@ def entry_signal(df: pd.DataFrame, bid: float, ask: float, params: dict | None =
     target = entry * (1 + risk_pct * p["target_rr"])
     return EntrySignal(True, f"ruptura de {n} velas con volumen {vol / avg_vol:.1f}×", ts, entry, stop, target, risk_pct, {
         "level": level, "atr_pct": atr_pct, "vol_ratio": vol / avg_vol, "vwap": vwap, "spread": spread,
+        "mode": "momentum",
     })
+
+
+# ------------------------------------------------------------------
+# VENTANAS HORARIAS
+# ------------------------------------------------------------------
+
+def is_active_window(hour_utc: int, params: dict | None = None) -> tuple[bool, str]:
+    """
+    Verifica si la hora actual cae dentro de una ventana horaria activa.
+    Retorna (is_active, reason).
+    """
+    p = merged_params(params)
+    if not p.get("enforce_windows", True):
+        return True, "ventanas desactivadas"
+
+    windows = p.get("active_windows_utc", [])
+    for start, end in windows:
+        if start <= end:
+            if start <= hour_utc < end:
+                return True, f"ventana activa {start:02d}:00–{end:02d}:00 UTC"
+        else:  # Cruza medianoche (ej: 22-02)
+            if hour_utc >= start or hour_utc < end:
+                return True, f"ventana activa {start:02d}:00–{end:02d}:00 UTC"
+
+    return False, f"fuera de ventana horaria ({hour_utc:02d}:00 UTC)"
+
+
+# ------------------------------------------------------------------
+# SEÑAL DE ENTRADA: RSI(7) reversión
+# ------------------------------------------------------------------
+
+def _rsi(series: pd.Series, period: int = 7) -> pd.Series:
+    """RSI estándar sobre una serie de precios."""
+    delta = series.diff()
+    gain = delta.where(delta > 0, 0.0)
+    loss = -delta.where(delta < 0, 0.0)
+    avg_gain = gain.ewm(alpha=1 / period, adjust=False).mean()
+    avg_loss = loss.ewm(alpha=1 / period, adjust=False).mean()
+    rs = avg_gain / avg_loss.replace(0, np.nan)
+    return 100 - 100 / (1 + rs)
+
+
+def rsi_entry_signal(df: pd.DataFrame, bid: float, ask: float,
+                     params: dict | None = None) -> EntrySignal:
+    """
+    Señal de entrada por RSI(7) reversión.
+    Reglas:
+      - RSI baja de oversold (20) y vuelve a cruzar arriba → compra
+      - Solo a favor de la tendencia de la última hora (EMA50 en 1m ≈ 50 min)
+      - Stop detrás del mínimo reciente (últimas 5 velas)
+      - Target: risk × rsi_target_rr (default 1.5)
+    """
+    p = merged_params(params)
+    d = prepare(df).iloc[:-1]  # solo cerradas
+    period = int(p["rsi_period"])
+
+    if len(d) < max(period + 5, 60):
+        return EntrySignal(False, "datos insuficientes para RSI")
+    if bid <= 0 or ask <= 0:
+        return EntrySignal(False, "sin cotización")
+
+    close = d["close"]
+    rsi = _rsi(close, period)
+    rsi_now = float(rsi.iloc[-1])
+    rsi_prev = float(rsi.iloc[-2])
+    rsi_prev2 = float(rsi.iloc[-3]) if len(rsi) > 2 else rsi_prev
+    ts = d["ts"].iloc[-1].isoformat()
+
+    a = float(atr(d).iloc[-1])
+    last_close = float(close.iloc[-1])
+    atr_pct = a / last_close if last_close > 0 else 0
+
+    if atr_pct < p["min_atr_pct"]:
+        return EntrySignal(False, f"ATR {atr_pct * 100:.3f}% muy bajo para RSI", ts)
+
+    # Cruce de oversold: RSI estaba abajo de 20 y ahora está arriba
+    oversold = float(p["rsi_oversold"])
+    crossed_up = (rsi_prev <= oversold or rsi_prev2 <= oversold) and rsi_now > oversold
+
+    if not crossed_up:
+        return EntrySignal(False, f"RSI({period}) = {rsi_now:.1f}, sin cruce de sobreventa", ts)
+
+    # Tendencia: EMA50 como filtro (precio debe estar arriba)
+    e50 = float(ema(close, 50).iloc[-1])
+    if last_close < e50:
+        return EntrySignal(False, f"RSI cruzó pero precio debajo de EMA50 (contra-tendencia)", ts)
+
+    # Spread
+    mid = (bid + ask) / 2
+    spread = (ask - bid) / mid
+    if spread > p["max_spread_pct"]:
+        return EntrySignal(False, f"spread {spread * 100:.3f}% demasiado alto", ts)
+
+    # Stop: mínimo de las últimas 5 velas
+    recent_low = float(d["low"].iloc[-5:].min())
+    risk_pct = float(min(max((ask - recent_low) / ask, p["min_risk_pct"]), p["max_risk_pct"]))
+
+    entry = ask
+    stop = recent_low
+    rr = float(p.get("rsi_target_rr", 1.5))
+    target = entry + (entry - stop) * rr
+
+    return EntrySignal(True, f"RSI({period}) cruce sobreventa {rsi_prev:.0f}→{rsi_now:.0f}", ts,
+                       entry, stop, target, risk_pct, {
+                           "rsi_now": rsi_now, "rsi_prev": rsi_prev, "ema50": e50,
+                           "recent_low": recent_low, "spread": spread, "mode": "rsi",
+                       })
+
+
+# ------------------------------------------------------------------
+# SELECCIÓN AUTOMÁTICA DE MODO
+# ------------------------------------------------------------------
+
+def select_scalper_mode(df: pd.DataFrame, params: dict | None = None) -> str:
+    """
+    Selecciona el modo del scalper según el régimen del mercado.
+    ADX alto (> threshold) → momentum breakout (mercado tendencial)
+    ADX bajo → RSI reversal (mercado en rango)
+    """
+    p = merged_params(params)
+    mode = p.get("scalper_mode", "auto")
+    if mode in ("momentum", "rsi"):
+        return mode
+
+    # Auto: decidir por ADX
+    d = prepare(df).iloc[:-1]
+    if len(d) < 30:
+        return "momentum"  # default si no hay datos
+
+    d5 = resample_5m(d)
+    adx_val, pdi, mdi = adx(d5)
+    threshold = float(p.get("adx_momentum_threshold", 25))
+
+    return "momentum" if adx_val >= threshold else "rsi"
+
+
+def scalper_entry(df: pd.DataFrame, bid: float, ask: float,
+                  params: dict | None = None, force_mode: str | None = None) -> EntrySignal:
+    """
+    Punto de entrada unificado del scalper: selecciona modo y llama
+    a la señal correspondiente.
+    """
+    p = merged_params(params)
+    mode = force_mode or select_scalper_mode(df, p)
+
+    if mode == "rsi":
+        return rsi_entry_signal(df, bid, ask, p)
+    else:
+        return entry_signal(df, bid, ask, p)

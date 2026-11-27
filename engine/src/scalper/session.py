@@ -12,7 +12,7 @@ Cortes de sesión (stop_reason):
 from datetime import datetime, timedelta, timezone
 import pandas as pd
 import structlog
-from src.scalper.indicators import merged_params, entry_signal, scalp_score, flash_crash, prepare
+from src.scalper.indicators import merged_params, entry_signal, scalp_score, flash_crash, prepare, is_active_window, scalper_entry
 
 log = structlog.get_logger()
 
@@ -184,11 +184,16 @@ async def _maybe_enter(store, sess, df, bid, ask, p, st, capital, now) -> str:
     if cd and now < cd:
         return f"cooldown tras pérdida ({(cd - now).total_seconds():.0f}s)"
 
-    sig = entry_signal(df, bid, ask, p)
+    # Filtro de ventana horaria
+    active, window_reason = is_active_window(now.hour, p)
+    if not active:
+        return window_reason
+
+    sig = scalper_entry(df, bid, ask, p)
     if not sig.ok:
         return sig.reason
     if p.get("_last_entry_candle") == sig.candle_ts:
-        return "ya se operó esta vela de ruptura"
+        return "ya se operó esta vela"
 
     notional = capital + min(st["realized_pnl_usd"], 0.0)  # las pérdidas achican el tamaño; las ganancias no lo agrandan
     if notional < MIN_NOTIONAL_USD:

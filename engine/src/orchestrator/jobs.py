@@ -388,16 +388,44 @@ async def _evaluate_pool(pool_name: str, cfg) -> None:
             feat = features[0]
             atr = float(feat["atr"] or 0)
 
+            tf = pool_cfg.get("timeframe", "1h")
             last_ohlcv = await db.select(
                 "ohlcv",
                 ["close"],
-                filters={"symbol": symbol, "timeframe": pool_cfg.get("timeframe", "1h")},
+                filters={"symbol": symbol, "timeframe": tf},
                 order_by="-ts",
                 limit=1,
             )
             price = float(last_ohlcv[0]["close"]) if last_ohlcv else float(feat["sma_20"] or 0)
             if price <= 0 or atr <= 0:
                 continue
+
+            # FVG filter: buscar gaps sin llenar debajo del precio actual
+            try:
+                from src.patterns.detector import detect_fvg
+                candles_for_fvg = await db.select(
+                    "ohlcv",
+                    filters={"symbol": symbol, "timeframe": tf},
+                    order_by="-ts",
+                    limit=50,
+                )
+                if candles_for_fvg and len(candles_for_fvg) >= 5:
+                    import pandas as _pd
+                    fvg_df = _pd.DataFrame(candles_for_fvg).sort_values("ts").reset_index(drop=True)
+                    for c in ("open", "high", "low", "close", "volume"):
+                        if c in fvg_df.columns:
+                            fvg_df[c] = _pd.to_numeric(fvg_df[c])
+                    fvgs = detect_fvg(fvg_df, min_gap_atr=0.3)
+                    # Si hay un FVG bullish sin llenar justo debajo del precio (dentro de 1 ATR),
+                    # el precio puede retroceder a llenarlo antes de continuar → no entrar
+                    unfilled_below = [f for f in fvgs if f.kind == "bullish" and not f.filled
+                                      and f.top <= price and (price - f.top) < atr]
+                    if unfilled_below:
+                        log.info("fvg_filter_skip", pool=pool_name, symbol=symbol,
+                                 gap_top=unfilled_below[0].top, gap_bottom=unfilled_below[0].bottom)
+                        continue
+            except Exception as e:
+                log.warning("fvg_filter_error", symbol=symbol, error=str(e))
 
             stop, target = compute_stop_target(
                 price, atr,
