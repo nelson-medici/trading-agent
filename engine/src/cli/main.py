@@ -19,7 +19,7 @@ def run():
 
 
 async def _run():
-    from src.orchestrator.scheduler import scheduler, setup_jobs
+    from src.orchestrator.scheduler import scheduler, setup_jobs, run_startup_jobs
     from src.core.config import DBConfig
     from src.core.db import get_db
     import structlog
@@ -34,6 +34,9 @@ async def _run():
     setup_jobs()
     scheduler.start()
     log.info("scheduler_started")
+
+    # Correr jobs clave una vez al arrancar (para no esperar triggers horarios)
+    await run_startup_jobs()
 
     try:
         while True:
