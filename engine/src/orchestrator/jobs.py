@@ -99,6 +99,29 @@ async def compute_features_and_score() -> None:
     finally:
         await md.close()
 
+    # Detectar régimen una sola vez (compartido para todos los activos)
+    from src.features.regime import detect_regime
+    # Para btc_above_sma50 necesitamos el OHLCV de BTC diario; aprox con 1h
+    btc_rows = await db.select(
+        "ohlcv",
+        filters={"symbol": "BTC/USDT", "timeframe": "1h"},
+        order_by="-ts",
+        limit=50 * 24,  # 50 días horarios ≈ SMA50 diaria
+    )
+    btc_above_sma50 = False
+    if len(btc_rows) >= 50:
+        btc_df = pd.DataFrame(btc_rows)
+        btc_df["close"] = pd.to_numeric(btc_df["close"])
+        btc_df = btc_df.sort_values("ts")
+        # Resamplear a diario (1 vela cada 24 horas)
+        btc_daily = btc_df.iloc[::24].reset_index(drop=True)
+        if len(btc_daily) >= 50:
+            sma50 = btc_daily["close"].tail(50).mean()
+            current = btc_daily["close"].iloc[-1]
+            btc_above_sma50 = bool(current > sma50)
+
+    regime_data = await detect_regime(btc_above_sma50=btc_above_sma50)
+
     scored_count = 0
 
     for symbol in universe:
@@ -122,15 +145,16 @@ async def compute_features_and_score() -> None:
             if not features:
                 continue
 
-            # Defaults para componentes que no computamos todavía
-            features["regime"] = "neutral"
+            # Régimen real (shared)
+            features["regime"] = regime_data["regime"]
+            features["btc_dominance"] = regime_data["btc_dominance"]
+            features["fear_greed"] = regime_data["fear_greed"]
+            # Defaults para componentes que no computamos todavía (sentimiento LLM)
             features["sentiment_score"] = 0.0
             features["news_count_7d"] = 0
-            features["fear_greed"] = 50
             features["bid_ask_spread_pct"] = spreads.get(symbol, 0.001)
             features["volume_24h_usd"] = 500_000_000  # BTC/ETH son muy líquidos
             features["has_event_in_48h"] = False
-            features["btc_dominance"] = 0.52
 
             # Persistir features
             await db.upsert("features", {
