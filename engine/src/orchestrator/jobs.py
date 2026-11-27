@@ -593,6 +593,19 @@ async def _close_paper_position(position: dict, exit_price: float, reason: str) 
     opened_dt = pd.to_datetime(opened_at)
     hold_hours = (datetime.now(timezone.utc) - opened_dt).total_seconds() / 3600
 
+    # Qué strategy generó esta posición (via la decision)
+    strategy_name = "score_based"
+    orders = await db.select("orders", filters={"symbol": symbol, "pool": pool_name}, order_by="-created_at", limit=1)
+    if orders and orders[0].get("decision_id"):
+        decisions = await db.select("decisions", filters={"id": orders[0]["decision_id"]}, limit=1)
+        if decisions:
+            just = (decisions[0].get("justification") or "").lower()
+            # Extraer strategy name del justification (format: "[strategy_name] ...")
+            if just.startswith("["):
+                end = just.find("]")
+                if end > 1:
+                    strategy_name = just[1:end]
+
     await db.insert("trades", {
         "symbol": symbol,
         "side": "LONG",
@@ -609,6 +622,7 @@ async def _close_paper_position(position: dict, exit_price: float, reason: str) 
         "score_at_entry": position.get("score_at_entry"),
         "score_at_exit": position.get("current_score"),
         "pool": pool_name,
+        "strategy_name": strategy_name,
     })
 
     await db.delete("positions", {"symbol": symbol, "pool": pool_name})

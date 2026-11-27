@@ -27,10 +27,21 @@ const VIEW_META: Record<View, { label: string }> = {
   control: { label: "Control" },
 };
 
+interface HeaderKPIs {
+  current_equity: number | null;
+  total_invested: number | null;
+  total_gain: number | null;
+  total_gain_pct: number | null;
+  open_positions: number | null;
+  engine_status: string | null;
+  engine_last_heartbeat: string | null;
+}
+
 export default function Shell({ current, children }: { current: View; children: React.ReactNode }) {
   const [now, setNow] = useState(new Date());
   const [email, setEmail] = useState<string>("");
   const [menuOpen, setMenuOpen] = useState(false);
+  const [kpis, setKpis] = useState<HeaderKPIs | null>(null);
   const router = useRouter();
   const supabase = createClient();
 
@@ -43,6 +54,18 @@ export default function Shell({ current, children }: { current: View; children: 
     supabase.auth.getUser().then(({ data: { user } }) => {
       if (user?.email) setEmail(user.email);
     });
+  }, [supabase]);
+
+  useEffect(() => {
+    async function loadKpis() {
+      const { data } = await supabase.from("v_dashboard_summary").select(
+        "current_equity, total_invested, total_gain, total_gain_pct, open_positions, engine_status, engine_last_heartbeat"
+      ).single();
+      if (data) setKpis(data as HeaderKPIs);
+    }
+    loadKpis();
+    const iv = setInterval(loadKpis, 15000);
+    return () => clearInterval(iv);
   }, [supabase]);
 
   async function handleLogout() {
@@ -68,11 +91,29 @@ export default function Shell({ current, children }: { current: View; children: 
             </div>
           </div>
           <div className="flex items-center gap-3 text-[11px]">
+            {/* KPIs permanentes */}
+            {kpis && (
+              <div className="hidden md:flex items-center gap-3 border border-zinc-800 bg-zinc-950 px-3 py-1">
+                <KpiItem label="Equity" value={kpis.current_equity != null ? `$${kpis.current_equity.toFixed(2)}` : "—"} tone="accent" />
+                <span className="text-zinc-800">|</span>
+                <KpiItem label="Inv" value={kpis.total_invested != null ? `$${kpis.total_invested.toFixed(0)}` : "—"} />
+                <span className="text-zinc-800">|</span>
+                <KpiItem
+                  label="Gain"
+                  value={kpis.total_gain != null ? `${kpis.total_gain >= 0 ? "+" : ""}$${kpis.total_gain.toFixed(2)}` : "—"}
+                  sub={kpis.total_gain_pct != null ? `${(kpis.total_gain_pct * 100).toFixed(1)}%` : undefined}
+                  tone={(kpis.total_gain ?? 0) > 0 ? "success" : (kpis.total_gain ?? 0) < 0 ? "danger" : "neutral"}
+                />
+                <span className="text-zinc-800">|</span>
+                <KpiItem label="Pos" value={kpis.open_positions ?? 0} />
+              </div>
+            )}
+
             <div className="hidden md:flex items-center gap-2">
-              <span className="w-1.5 h-1.5 rounded-full bg-lime-400 animate-pulse" />
-              <span className="text-zinc-400">dev · paper broker</span>
+              <span className={`w-1.5 h-1.5 rounded-full ${kpis?.engine_status === "healthy" ? "bg-lime-400 animate-pulse" : "bg-amber-500"}`} />
+              <span className="text-zinc-400 text-[10px]">dev · paper</span>
             </div>
-            <div className="hidden lg:block text-zinc-500">{now.toISOString().slice(0, 19).replace("T", " ")} <span className="text-zinc-700">UTC</span></div>
+            <div className="hidden xl:block text-zinc-500 text-[10px]">{now.toISOString().slice(11, 19)} <span className="text-zinc-700">UTC</span></div>
 
             {/* CTA Configuración */}
             <Link href="/config"
@@ -139,6 +180,17 @@ export default function Shell({ current, children }: { current: View; children: 
         <span>quant.agent · disciplined quantitative system</span>
         <span>v0.1.0</span>
       </footer>
+    </div>
+  );
+}
+
+function KpiItem({ label, value, sub, tone = "neutral" }: { label: string; value: any; sub?: string; tone?: string }) {
+  const color = { neutral: "text-zinc-100", accent: "text-lime-400", success: "text-emerald-400", warn: "text-amber-400", danger: "text-red-400" }[tone] || "text-zinc-100";
+  return (
+    <div className="flex items-baseline gap-1.5">
+      <span className="text-[9px] uppercase tracking-wider text-zinc-500">{label}</span>
+      <span className={`text-[12px] tabular-nums ${color}`}>{value}</span>
+      {sub && <span className={`text-[9px] tabular-nums ${color} opacity-70`}>({sub})</span>}
     </div>
   );
 }

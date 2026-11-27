@@ -71,7 +71,7 @@ interface BacktestJob {
   completed_at: string | null;
 }
 
-const KNOWN_STRATEGIES = ["orb_intraday"];
+const KNOWN_STRATEGIES = ["orb_intraday", "orb_intraday_equities", "ema_golden_pullback", "donchian_breakout"];
 const UNIVERSE = ["BTC/USDT", "ETH/USDT", "SOL/USDT", "BNB/USDT", "AVAX/USDT", "LINK/USDT", "DOT/USDT", "MATIC/USDT", "ARB/USDT"];
 
 export default function StrategiesPage() {
@@ -82,6 +82,7 @@ export default function StrategiesPage() {
   const [signals, setSignals] = useState<Signal[]>([]);
   const [results, setResults] = useState<BacktestResult[]>([]);
   const [jobs, setJobs] = useState<BacktestJob[]>([]);
+  const [performance, setPerformance] = useState<any[]>([]);
 
   // Form state
   const [btStrategy, setBtStrategy] = useState("orb_intraday");
@@ -100,16 +101,18 @@ export default function StrategiesPage() {
   }, [router, supabase]);
 
   async function load() {
-    const [cfgRes, sigRes, resRes, jobRes] = await Promise.all([
+    const [cfgRes, sigRes, resRes, jobRes, perfRes] = await Promise.all([
       supabase.from("config").select("value").eq("key", "strategies.enabled").single(),
       supabase.from("strategy_signals").select("*").order("created_at", { ascending: false }).limit(30),
       supabase.from("backtest_results").select("*").order("run_at", { ascending: false }).limit(50),
       supabase.from("backtest_jobs").select("*").order("requested_at", { ascending: false }).limit(10),
+      supabase.from("v_strategy_performance").select("*"),
     ]);
     if (cfgRes.data?.value) setStrategies(cfgRes.data.value);
     if (sigRes.data) setSignals(sigRes.data as Signal[]);
     if (resRes.data) setResults(resRes.data as BacktestResult[]);
     if (jobRes.data) setJobs(jobRes.data as BacktestJob[]);
+    if (perfRes.data) setPerformance(perfRes.data);
   }
 
   useEffect(() => {
@@ -246,6 +249,49 @@ export default function StrategiesPage() {
             </div>
           </section>
         )}
+
+        {/* Ranking de performance en vivo */}
+        <section>
+          <h2 className="text-[11px] uppercase tracking-[0.2em] text-zinc-500 mb-2">// Performance en vivo (30 días)</h2>
+          {performance.length === 0 ? (
+            <div className="border border-zinc-800 bg-zinc-950 p-4 text-xs text-zinc-600">Sin trades cerrados aún por strategy. Se completa cuando el engine cierre trades.</div>
+          ) : (
+            <div className="border border-zinc-800 bg-zinc-950 overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead className="border-b border-zinc-800 text-[10px] uppercase tracking-wider text-zinc-500">
+                  <tr>
+                    <th className="text-left px-3 py-2">#</th>
+                    <th className="text-left px-3 py-2">Strategy</th>
+                    <th className="text-right px-3 py-2">Trades</th>
+                    <th className="text-right px-3 py-2">Win%</th>
+                    <th className="text-right px-3 py-2">PF</th>
+                    <th className="text-right px-3 py-2">Sharpe-like</th>
+                    <th className="text-right px-3 py-2">PnL total</th>
+                    <th className="text-right px-3 py-2">Avg Win</th>
+                    <th className="text-right px-3 py-2">Avg Loss</th>
+                    <th className="text-right px-3 py-2">Avg Hold</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {performance.map((p: any, i: number) => (
+                    <tr key={p.strategy_name} className="border-b border-zinc-900">
+                      <td className="px-3 py-2 text-zinc-500">{i + 1}</td>
+                      <td className="px-3 py-2 text-zinc-100 font-medium">{p.strategy_name}</td>
+                      <td className="px-3 py-2 text-right tabular-nums">{p.total_trades}</td>
+                      <td className={`px-3 py-2 text-right tabular-nums ${p.win_rate >= 0.5 ? "text-emerald-400" : "text-amber-400"}`}>{(p.win_rate * 100).toFixed(1)}%</td>
+                      <td className={`px-3 py-2 text-right tabular-nums ${p.profit_factor >= 1.5 ? "text-emerald-400" : p.profit_factor >= 1 ? "text-amber-400" : "text-red-400"}`}>{Number(p.profit_factor).toFixed(2)}</td>
+                      <td className={`px-3 py-2 text-right tabular-nums ${p.sharpe_like >= 1 ? "text-emerald-400" : p.sharpe_like >= 0.5 ? "text-amber-400" : "text-red-400"}`}>{Number(p.sharpe_like).toFixed(2)}</td>
+                      <td className={`px-3 py-2 text-right tabular-nums ${Number(p.total_pnl_usd) >= 0 ? "text-emerald-400" : "text-red-400"}`}>{formatUsd(Number(p.total_pnl_usd))}</td>
+                      <td className="px-3 py-2 text-right tabular-nums text-emerald-400">{formatUsd(Number(p.avg_win_usd))}</td>
+                      <td className="px-3 py-2 text-right tabular-nums text-red-400">{formatUsd(Number(p.avg_loss_usd))}</td>
+                      <td className="px-3 py-2 text-right tabular-nums text-zinc-400">{Number(p.avg_hold_hours).toFixed(1)}h</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
 
         {/* Resultados de backtests */}
         <section>

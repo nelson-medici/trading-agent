@@ -1,10 +1,14 @@
 """Registro de estrategias disponibles."""
 from src.strategies.base import Strategy
 from src.strategies.orb import ORBIntradayStrategy
+from src.strategies.ema_golden_pullback import EmaGoldenPullbackStrategy
+from src.strategies.donchian_breakout import DonchianBreakoutStrategy
 
 
 REGISTRY: dict[str, type[Strategy]] = {
     "orb_intraday": ORBIntradayStrategy,
+    "ema_golden_pullback": EmaGoldenPullbackStrategy,
+    "donchian_breakout": DonchianBreakoutStrategy,
 }
 
 
