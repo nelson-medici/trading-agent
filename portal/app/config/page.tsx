@@ -200,14 +200,50 @@ function ValuePreview({ value, keyName }: { value: any; keyName: string }) {
   if (typeof value === "object" && value !== null) {
     return (
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
-        {Object.entries(value).map(([k, v]) => (
-          <div key={k} className="border border-zinc-900 p-2">
-            <div className="text-[10px] uppercase tracking-wider text-zinc-500">{humanizeField(k)}</div>
-            <div className="text-sm text-zinc-200 tabular-nums font-mono mt-0.5">
-              {formatScalar(v, isPctField(k))}
+        {Object.entries(value).map(([k, v]) => {
+          // Sub-objeto: renderizar como bloque con sus propios campos
+          if (typeof v === "object" && v !== null && !Array.isArray(v)) {
+            return (
+              <div key={k} className="border border-zinc-900 p-2 md:col-span-2 lg:col-span-3">
+                <div className="text-[10px] uppercase tracking-wider text-zinc-500 mb-2">{humanizeField(k)}</div>
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-1.5 pl-2 border-l-2 border-zinc-800">
+                  {Object.entries(v).map(([sk, sv]) => (
+                    <div key={sk} className="bg-zinc-900/50 px-2 py-1.5">
+                      <div className="text-[9px] uppercase tracking-wider text-zinc-600">{humanizeField(sk)}</div>
+                      <div className="text-xs text-zinc-200 tabular-nums font-mono mt-0.5">
+                        {formatScalar(sv, isPctField(sk))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          }
+          // Array dentro de un objeto
+          if (Array.isArray(v)) {
+            return (
+              <div key={k} className="border border-zinc-900 p-2 md:col-span-2 lg:col-span-3">
+                <div className="text-[10px] uppercase tracking-wider text-zinc-500 mb-1">{humanizeField(k)}</div>
+                <div className="flex flex-wrap gap-1">
+                  {v.length === 0 ? <span className="text-zinc-600 text-[11px]">(vacío)</span> : v.map((item, i) => (
+                    <span key={i} className="text-[11px] bg-zinc-900 border border-zinc-800 px-2 py-0.5 text-zinc-300 font-mono">
+                      {typeof item === "string" ? item : JSON.stringify(item)}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            );
+          }
+          // Escalar
+          return (
+            <div key={k} className="border border-zinc-900 p-2">
+              <div className="text-[10px] uppercase tracking-wider text-zinc-500">{humanizeField(k)}</div>
+              <div className="text-sm text-zinc-200 tabular-nums font-mono mt-0.5">
+                {formatScalar(v, isPctField(k))}
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     );
   }
