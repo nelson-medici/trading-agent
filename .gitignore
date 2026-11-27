@@ -1,0 +1,51 @@
+# Env files
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# Secrets
+*.pem
+*.key
+!*.public.key
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+htmlcov/
+.coverage
+*.egg-info/
+dist/
+build/
+
+# Node
+node_modules/
+.next/
+out/
+.vercel
+
+# IDE
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# Data
+*.parquet
+*.csv
+!supabase/seed/*.csv
+data/
+logs/
+
+# Local scratch
+scratch/
+tmp/
