@@ -3,15 +3,16 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase";
-import { Activity, Wallet, Brain, Settings as SettingsIcon, Shield, Terminal, Wifi, Server, LogOut, User } from "lucide-react";
+import { Activity, Wallet, Brain, Settings as SettingsIcon, Shield, Terminal, Wifi, Server, LogOut, User, Zap } from "lucide-react";
 
-type View = "overview" | "portfolio" | "decisions" | "config" | "control";
+type View = "overview" | "portfolio" | "decisions" | "strategies" | "config" | "control";
 
 // Configuración ya NO está en la nav principal — es un CTA en el header
 const NAV: { id: View; label: string; icon: any; href: string }[] = [
   { id: "overview", label: "Overview", icon: Activity, href: "/" },
   { id: "portfolio", label: "Portafolio", icon: Wallet, href: "/portfolio" },
   { id: "decisions", label: "Decisiones", icon: Brain, href: "/decisions" },
+  { id: "strategies", label: "Strategies", icon: Zap, href: "/strategies" },
   { id: "control", label: "Control", icon: Shield, href: "/control" },
 ];
 
@@ -19,6 +20,7 @@ const VIEW_META: Record<View, { label: string }> = {
   overview: { label: "Overview" },
   portfolio: { label: "Portafolio" },
   decisions: { label: "Decisiones" },
+  strategies: { label: "Strategies" },
   config: { label: "Configuración" },
   control: { label: "Control" },
 };

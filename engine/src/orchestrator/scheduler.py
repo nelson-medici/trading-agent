@@ -42,6 +42,9 @@ def setup_jobs() -> None:
     # Strategies cada 30 min (ORB y futuras)
     scheduler.add_job(jobs.evaluate_strategies, IntervalTrigger(minutes=30), id="strategies", max_instances=1)
 
+    # Backtest queue cada 1 min (procesa jobs disparados desde el portal)
+    scheduler.add_job(jobs.process_backtest_queue, IntervalTrigger(minutes=1), id="backtest_queue", max_instances=1)
+
     # Rollovers y reports
     scheduler.add_job(jobs.backup_db, CronTrigger(hour=4, minute=0), id="backup")
     scheduler.add_job(jobs.daily_report, CronTrigger(hour=23, minute=55), id="daily")

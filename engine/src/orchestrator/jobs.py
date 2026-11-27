@@ -803,6 +803,86 @@ async def evaluate_strategies() -> None:
                     log.error("strategy_eval_failed", strategy=strat_name, symbol=symbol, error=str(e), exc_info=True)
 
 
+async def process_backtest_queue() -> None:
+    """
+    Revisa backtest_jobs en estado pending, los ejecuta, guarda resultado,
+    y linkea el result_id al job.
+    """
+    from src.core.db import get_db
+    from src.strategies.registry import get_strategy
+    from src.backtest.engine import BacktestEngine
+
+    db = get_db()
+    pending = await db.select("backtest_jobs", filters={"status": "pending"}, limit=5)
+    if not pending:
+        return
+
+    for job in pending:
+        try:
+            await db.update("backtest_jobs",
+                {"status": "running", "started_at": _utc_now_iso()},
+                {"id": job["id"]})
+
+            strat_name = job["strategy_name"]
+            symbol = job["symbol"]
+            timeframe = job["timeframe"]
+            capital = float(job["initial_capital"])
+            risk_pct = float(job["risk_per_trade_pct"])
+            params = job.get("params_override") or {}
+
+            strategy = get_strategy(strat_name, params)
+            if strategy is None:
+                raise ValueError(f"Strategy {strat_name} not found")
+
+            rows = await db.select(
+                "ohlcv",
+                filters={"symbol": symbol, "timeframe": timeframe},
+                order_by="ts",
+                limit=5000,
+            )
+            if len(rows) < 100:
+                raise ValueError(f"Insufficient data: {len(rows)} rows")
+
+            df = pd.DataFrame(rows)
+            engine = BacktestEngine(initial_capital=capital, risk_per_trade_pct=risk_pct)
+            result = engine.run(strategy, df, symbol, timeframe)
+
+            saved = await db.insert("backtest_results", {
+                "strategy_name": result.strategy_name,
+                "symbol": result.symbol,
+                "timeframe": result.timeframe,
+                "start_date": result.start_date,
+                "end_date": result.end_date,
+                "initial_capital": result.initial_capital,
+                "final_capital": result.final_capital,
+                "total_return_pct": result.total_return_pct,
+                "total_trades": result.total_trades,
+                "winning_trades": result.winning_trades,
+                "losing_trades": result.losing_trades,
+                "win_rate": result.win_rate,
+                "profit_factor": min(result.profit_factor, 999.99),
+                "sharpe_ratio": result.sharpe_ratio,
+                "max_drawdown_pct": result.max_drawdown_pct,
+                "avg_win_usd": result.avg_win_usd,
+                "avg_loss_usd": result.avg_loss_usd,
+                "avg_hold_hours": result.avg_hold_hours,
+                "params": strategy.params,
+                "trades_detail": [t.__dict__ for t in result.trades[:100]],
+            })
+
+            await db.update("backtest_jobs",
+                {"status": "done", "completed_at": _utc_now_iso(), "result_id": saved["id"]},
+                {"id": job["id"]})
+
+            log.info("backtest_job_done", job_id=job["id"], strategy=strat_name, symbol=symbol, trades=result.total_trades)
+
+        except Exception as e:
+            await db.update("backtest_jobs",
+                {"status": "failed", "completed_at": _utc_now_iso(), "error_message": str(e)},
+                {"id": job["id"]})
+            log.error("backtest_job_failed", job_id=job["id"], error=str(e), exc_info=True)
+
+
 async def rollover_daily_dd() -> None: log.info("dd_daily_rollover")
 async def rollover_weekly_dd() -> None: log.info("dd_weekly_rollover")
 async def backup_db() -> None: log.info("backup_skipped")
