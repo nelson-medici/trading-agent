@@ -1,10 +1,10 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase";
 import { useRouter } from "next/navigation";
 import Shell from "@/components/Shell";
 import { formatUsd, formatPct } from "@/lib/utils";
-import { Play, Clock, CheckCircle2, XCircle, TrendingUp, TrendingDown } from "lucide-react";
+import { Play, Clock, CheckCircle2, XCircle, TrendingUp, TrendingDown, Heart, HeartCrack, AlertCircle } from "lucide-react";
 
 interface StrategyConfig {
   key: string;
@@ -103,7 +103,7 @@ export default function StrategiesPage() {
   async function load() {
     const [cfgRes, sigRes, resRes, jobRes, perfRes] = await Promise.all([
       supabase.from("config").select("value").eq("key", "strategies.enabled").single(),
-      supabase.from("strategy_signals").select("*").order("created_at", { ascending: false }).limit(30),
+      supabase.from("strategy_signals").select("*").order("ts", { ascending: false }).limit(500),
       supabase.from("backtest_results").select("*").order("run_at", { ascending: false }).limit(50),
       supabase.from("backtest_jobs").select("*").order("requested_at", { ascending: false }).limit(10),
       supabase.from("v_strategy_performance").select("*"),
@@ -338,49 +338,253 @@ export default function StrategiesPage() {
           )}
         </section>
 
-        {/* Señales recientes */}
-        <section>
-          <h2 className="text-[11px] uppercase tracking-[0.2em] text-zinc-500 mb-2">// Señales recientes ({signals.length})</h2>
-          {signals.length === 0 ? (
-            <div className="border border-zinc-800 bg-zinc-950 p-4 text-xs text-zinc-600">Sin señales todavía.</div>
-          ) : (
-            <div className="space-y-2">
-              {signals.slice(0, 20).map((s) => {
-                const isBuy = s.action === "BUY";
-                const isNone = s.action === "NONE";
-                const Icon = isBuy ? TrendingUp : isNone ? Clock : TrendingDown;
-                return (
-                  <div key={s.id} className={`border p-3 ${isBuy ? "border-lime-800 bg-lime-950/10" : isNone ? "border-zinc-900 bg-zinc-950" : "border-red-800 bg-red-950/10"}`}>
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2 mb-1">
-                          <Icon className={`w-3.5 h-3.5 ${isBuy ? "text-lime-400" : isNone ? "text-zinc-500" : "text-red-400"}`} />
-                          <span className="text-zinc-100 font-medium text-sm">{s.symbol}</span>
-                          <span className={`text-[10px] uppercase tracking-wider px-1.5 py-0.5 border ${isBuy ? "border-lime-800 text-lime-400" : isNone ? "border-zinc-800 text-zinc-500" : "border-red-800 text-red-400"}`}>
-                            {s.action}
-                          </span>
-                          <span className="text-[10px] text-zinc-500">{s.strategy_name}</span>
-                          <span className="text-[10px] text-zinc-600">pool: {s.pool}</span>
-                          {s.confidence > 0 && <span className="text-[10px] text-zinc-400">conf: {s.confidence.toFixed(0)}</span>}
-                        </div>
-                        {s.reasoning && <div className="text-[11px] text-zinc-400">{s.reasoning}</div>}
-                        {isBuy && (
-                          <div className="flex gap-4 mt-1 text-[10px] text-zinc-500">
-                            <span>Entry: <span className="text-zinc-300">${s.entry_price?.toFixed(2)}</span></span>
-                            <span>Stop: <span className="text-red-400">${s.stop_price?.toFixed(2)}</span></span>
-                            <span>Target: <span className="text-emerald-400">${s.target_price?.toFixed(2)}</span></span>
-                          </div>
-                        )}
-                      </div>
-                      <div className="text-[10px] text-zinc-600 whitespace-nowrap">{new Date(s.ts).toLocaleTimeString()}</div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </section>
+        {/* Health por estrategia + feed filtrado */}
+        <SignalsSection signals={signals} />
       </div>
     </Shell>
   );
+}
+
+// ================================================================
+// Sección de señales: health + feed filtrado
+// ================================================================
+function SignalsSection({ signals }: { signals: Signal[] }) {
+  const [actionFilter, setActionFilter] = useState<"active" | "all" | "none">("active");
+  const [stratFilter, setStratFilter] = useState<string>("all");
+
+  // Health agregado por estrategia
+  const health = useMemo(() => {
+    const nowMs = Date.now();
+    const H24 = 24 * 3600_000;
+    const H7D = 7 * H24;
+    const map = new Map<string, {
+      strategy: string;
+      pools: Set<string>;
+      lastEvalMs: number;
+      buy24: number;
+      buy7d: number;
+      none24: number;
+      noneReasons: Map<string, number>;
+      lastBuyMs: number | null;
+    }>();
+
+    for (const s of signals) {
+      const tsMs = new Date(s.ts).getTime();
+      const existing = map.get(s.strategy_name) || {
+        strategy: s.strategy_name,
+        pools: new Set<string>(),
+        lastEvalMs: 0,
+        buy24: 0, buy7d: 0, none24: 0,
+        noneReasons: new Map<string, number>(),
+        lastBuyMs: null,
+      };
+      existing.pools.add(s.pool);
+      if (tsMs > existing.lastEvalMs) existing.lastEvalMs = tsMs;
+
+      if (s.action === "BUY") {
+        if (nowMs - tsMs <= H24) existing.buy24++;
+        if (nowMs - tsMs <= H7D) existing.buy7d++;
+        if (!existing.lastBuyMs || tsMs > existing.lastBuyMs) existing.lastBuyMs = tsMs;
+      }
+      if (s.action === "NONE") {
+        if (nowMs - tsMs <= H24) {
+          existing.none24++;
+          const reason = s.reasoning || "sin razón";
+          existing.noneReasons.set(reason, (existing.noneReasons.get(reason) || 0) + 1);
+        }
+      }
+      map.set(s.strategy_name, existing);
+    }
+
+    return Array.from(map.values()).map((h) => ({
+      ...h,
+      topReasons: Array.from(h.noneReasons.entries()).sort((a, b) => b[1] - a[1]).slice(0, 3),
+      pools: Array.from(h.pools).sort(),
+    })).sort((a, b) => a.strategy.localeCompare(b.strategy));
+  }, [signals]);
+
+  // Listado filtrado
+  const filteredSignals = useMemo(() => {
+    return signals.filter((s) => {
+      if (actionFilter === "active" && s.action === "NONE") return false;
+      if (actionFilter === "none" && s.action !== "NONE") return false;
+      if (stratFilter !== "all" && s.strategy_name !== stratFilter) return false;
+      return true;
+    }).slice(0, 50);
+  }, [signals, actionFilter, stratFilter]);
+
+  const strategyOptions = Array.from(new Set(signals.map((s) => s.strategy_name))).sort();
+
+  return (
+    <>
+      {/* Health por estrategia */}
+      <section>
+        <h2 className="text-[11px] uppercase tracking-[0.2em] text-zinc-500 mb-2">// Health por estrategia (últimas 24h)</h2>
+        {health.length === 0 ? (
+          <div className="border border-zinc-800 bg-zinc-950 p-4 text-xs text-zinc-600">Sin evaluaciones registradas.</div>
+        ) : (
+          <div className="border border-zinc-800 bg-zinc-950 overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead className="border-b border-zinc-800 text-[10px] uppercase tracking-wider text-zinc-500">
+                <tr>
+                  <th className="w-6"></th>
+                  <th className="text-left px-3 py-2">Strategy</th>
+                  <th className="text-left px-3 py-2">Pools</th>
+                  <th className="text-right px-2 py-2">Últ. eval</th>
+                  <th className="text-right px-2 py-2">BUY 24h</th>
+                  <th className="text-right px-2 py-2">BUY 7d</th>
+                  <th className="text-right px-2 py-2">NONE 24h</th>
+                  <th className="text-right px-2 py-2">Últ. BUY</th>
+                  <th className="text-left px-3 py-2">Top razones de NONE</th>
+                </tr>
+              </thead>
+              <tbody>
+                {health.map((h) => {
+                  // Health visual: verde si BUY reciente, amarillo si silencio largo, rojo si nunca BUY
+                  const hoursSinceBuy = h.lastBuyMs ? (Date.now() - h.lastBuyMs) / 3600_000 : null;
+                  const Icon = h.buy24 > 0 ? Heart : hoursSinceBuy == null ? HeartCrack : AlertCircle;
+                  const color = h.buy24 > 0 ? "text-lime-400" : hoursSinceBuy == null ? "text-red-500" : hoursSinceBuy < 168 ? "text-amber-400" : "text-red-400";
+                  return (
+                    <tr key={h.strategy} className="border-b border-zinc-900 align-top">
+                      <td className="px-2 pt-2.5"><Icon className={`w-3.5 h-3.5 ${color}`} /></td>
+                      <td className="px-3 py-2 text-zinc-100 font-medium">{h.strategy}</td>
+                      <td className="px-3 py-2 text-[10px] uppercase text-zinc-500">{h.pools.join(" · ")}</td>
+                      <td className="px-2 py-2 text-right text-[10px] text-zinc-500 tabular-nums">{relativeTime(h.lastEvalMs)}</td>
+                      <td className={`px-2 py-2 text-right tabular-nums ${h.buy24 > 0 ? "text-lime-400 font-medium" : "text-zinc-600"}`}>{h.buy24}</td>
+                      <td className={`px-2 py-2 text-right tabular-nums ${h.buy7d > 0 ? "text-emerald-400" : "text-zinc-600"}`}>{h.buy7d}</td>
+                      <td className="px-2 py-2 text-right tabular-nums text-zinc-500">{h.none24}</td>
+                      <td className="px-2 py-2 text-right text-[10px] text-zinc-500 tabular-nums">{h.lastBuyMs ? relativeTime(h.lastBuyMs) : "nunca"}</td>
+                      <td className="px-3 py-2 text-[10px]">
+                        {h.topReasons.length === 0 ? (
+                          <span className="text-zinc-700">—</span>
+                        ) : (
+                          <div className="space-y-0.5">
+                            {h.topReasons.map(([reason, n]) => (
+                              <div key={reason} className="flex items-baseline gap-2">
+                                <span className="text-zinc-600 tabular-nums w-6 text-right">{n}×</span>
+                                <span className="text-zinc-400">{reason}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+        <div className="mt-2 text-[10px] text-zinc-600">
+          <span className="text-lime-400">●</span> operando &nbsp;
+          <span className="text-amber-400">●</span> silencio &lt;7d &nbsp;
+          <span className="text-red-400">●</span> silencio largo &nbsp;
+          <span className="text-red-500">●</span> nunca dio BUY
+        </div>
+      </section>
+
+      {/* Feed filtrado */}
+      <section>
+        <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
+          <h2 className="text-[11px] uppercase tracking-[0.2em] text-zinc-500">// Feed de señales ({filteredSignals.length} de {signals.length})</h2>
+          <div className="flex items-center gap-2">
+            <div className="flex gap-1">
+              <FilterBtn active={actionFilter === "active"} onClick={() => setActionFilter("active")}>Solo BUY/SELL</FilterBtn>
+              <FilterBtn active={actionFilter === "all"} onClick={() => setActionFilter("all")}>Todas</FilterBtn>
+              <FilterBtn active={actionFilter === "none"} onClick={() => setActionFilter("none")}>Solo NONE</FilterBtn>
+            </div>
+            <select value={stratFilter} onChange={(e) => setStratFilter(e.target.value)}
+              className="bg-black border border-zinc-800 px-2 py-1 text-[10px] text-zinc-200 font-mono focus:border-lime-500 outline-none">
+              <option value="all">Todas strategies</option>
+              {strategyOptions.map((s) => <option key={s} value={s}>{s}</option>)}
+            </select>
+          </div>
+        </div>
+
+        {filteredSignals.length === 0 ? (
+          <div className="border border-zinc-800 bg-zinc-950 p-4 text-xs text-zinc-600">
+            {actionFilter === "active" ? "Sin señales de entrada/salida activas. Cambiá a 'Todas' para ver el tráfico de evaluaciones NONE." : "Sin señales en este filtro."}
+          </div>
+        ) : (
+          <div className="border border-zinc-800 bg-zinc-950 overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead className="border-b border-zinc-800 text-[10px] uppercase tracking-wider text-zinc-500">
+                <tr>
+                  <th className="w-6"></th>
+                  <th className="text-left px-3 py-2">Símbolo</th>
+                  <th className="text-left px-3 py-2">Strategy</th>
+                  <th className="text-left px-2 py-2">Pool</th>
+                  <th className="text-center px-2 py-2">Acción</th>
+                  <th className="text-right px-2 py-2">Conf</th>
+                  <th className="text-left px-3 py-2">Razón / plan</th>
+                  <th className="text-right px-2 py-2">Cuándo</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredSignals.map((s) => {
+                  const isBuy = s.action === "BUY";
+                  const isSell = s.action === "SELL";
+                  const Icon = isBuy ? TrendingUp : isSell ? TrendingDown : Clock;
+                  const iconColor = isBuy ? "text-lime-400" : isSell ? "text-red-400" : "text-zinc-600";
+                  return (
+                    <tr key={s.id} className="border-b border-zinc-900">
+                      <td className="px-2"><Icon className={`w-3 h-3 ${iconColor}`} /></td>
+                      <td className="px-3 py-1.5 text-zinc-100 font-medium">{s.symbol}</td>
+                      <td className="px-3 py-1.5 text-[10px] text-zinc-400">{s.strategy_name}</td>
+                      <td className="px-2 py-1.5 text-[10px] uppercase text-zinc-500">{s.pool}</td>
+                      <td className="px-2 py-1.5 text-center">
+                        <span className={`text-[10px] uppercase tracking-wider px-1.5 py-0.5 border ${
+                          isBuy ? "border-lime-700 text-lime-400 bg-lime-950/30"
+                          : isSell ? "border-red-700 text-red-400 bg-red-950/30"
+                          : "border-zinc-800 text-zinc-600"
+                        }`}>{s.action}</span>
+                      </td>
+                      <td className={`px-2 py-1.5 text-right tabular-nums ${s.confidence > 0 ? "text-zinc-300" : "text-zinc-700"}`}>
+                        {s.confidence > 0 ? s.confidence.toFixed(0) : "—"}
+                      </td>
+                      <td className="px-3 py-1.5 text-zinc-400">
+                        {isBuy ? (
+                          <span className="text-[11px]">
+                            E: <span className="text-zinc-200">${s.entry_price?.toFixed(2)}</span> ·
+                            S: <span className="text-red-400">${s.stop_price?.toFixed(2)}</span> ·
+                            T: <span className="text-emerald-400">${s.target_price?.toFixed(2)}</span>
+                            {s.reasoning && <span className="text-zinc-500 ml-2">· {s.reasoning}</span>}
+                          </span>
+                        ) : (
+                          <span className="text-[11px] text-zinc-500">{s.reasoning || "—"}</span>
+                        )}
+                      </td>
+                      <td className="px-2 py-1.5 text-right text-[10px] text-zinc-500 tabular-nums whitespace-nowrap">
+                        {new Date(s.ts).toLocaleTimeString()}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+    </>
+  );
+}
+
+function FilterBtn({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button onClick={onClick}
+      className={`text-[10px] uppercase tracking-wider px-2 py-1 border ${active ? "border-lime-500 text-lime-400 bg-lime-950/30" : "border-zinc-800 text-zinc-500 hover:text-zinc-300"}`}>
+      {children}
+    </button>
+  );
+}
+
+function relativeTime(ms: number): string {
+  const diff = Date.now() - ms;
+  const m = Math.floor(diff / 60000);
+  if (m < 1) return "ahora";
+  if (m < 60) return `${m}m`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h`;
+  const d = Math.floor(h / 24);
+  return `${d}d`;
 }
