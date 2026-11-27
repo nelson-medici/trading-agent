@@ -64,7 +64,17 @@ export default function ChartsPage() {
   const [showFVG, setShowFVG] = useState(false);
   const [showRejections, setShowRejections] = useState(false);
   const [showVolProfile, setShowVolProfile] = useState(false);
-  const [limit, setLimit] = useState(500);
+
+  // Límites por timeframe: 1m→120 (2h), 5m→120 (10h), 15m+→500
+  const limitOptions: Record<string, number[]> = {
+    "1m": [60, 120, 240],
+    "5m": [60, 120, 240],
+    "15m": [100, 200, 500],
+    "1h": [100, 200, 500],
+    "4h": [100, 200, 500],
+  };
+  const defaultLimits: Record<string, number> = { "1m": 120, "5m": 120, "15m": 200, "1h": 500, "4h": 200 };
+  const [limit, setLimit] = useState(defaultLimits[timeframe] || 500);
 
   const [candles, setCandles] = useState<Candle[]>([]);
   const [trades, setTrades] = useState<Trade[]>([]);
@@ -325,7 +335,7 @@ export default function ChartsPage() {
 
           <div className="flex items-center gap-1">
             {(assetClass === "equities" ? ["15m", "1h"] : ["1m", "5m", "15m", "1h", "4h"]).map((tf) => (
-              <button key={tf} onClick={() => setTimeframe(tf)}
+              <button key={tf} onClick={() => { setTimeframe(tf); setLimit(defaultLimits[tf] || 500); }}
                 className={`text-[10px] uppercase tracking-wider px-2 py-1 border ${timeframe === tf ? "border-lime-500 text-lime-400 bg-lime-950/30" : "border-zinc-800 text-zinc-500 hover:text-zinc-300"}`}>
                 {tf}
               </button>
@@ -333,7 +343,7 @@ export default function ChartsPage() {
           </div>
 
           <div className="flex items-center gap-1 ml-2">
-            {[100, 200, 500].map((n) => (
+            {(limitOptions[timeframe] || [100, 200, 500]).map((n) => (
               <button key={n} onClick={() => setLimit(n)}
                 className={`text-[10px] uppercase tracking-wider px-2 py-1 border ${limit === n ? "border-zinc-500 text-zinc-200 bg-zinc-900" : "border-zinc-900 text-zinc-600 hover:text-zinc-300"}`}>
                 {n}
