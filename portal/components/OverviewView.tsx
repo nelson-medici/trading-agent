@@ -7,7 +7,7 @@ import {
   Wallet, Gauge, TrendingUp, DollarSign,
   Layers, Brain, Timer, Bell, History,
   CandlestickChart, ArrowRight, AlertOctagon,
-  AlertTriangle, ChevronRight,
+  AlertTriangle, ChevronRight, Target,
 } from "lucide-react";
 
 /* ------------------------------------------------------------------ */
@@ -77,6 +77,32 @@ interface AlertSummary {
   info: number;
 }
 
+interface Effectiveness {
+  total_trades: number;
+  wins: number;
+  losses: number;
+  win_rate_pct: number;
+  total_pnl: number;
+  avg_pnl: number;
+  avg_win: number;
+  avg_loss: number;
+  reward_risk_ratio: number | null;
+  profit_factor: number | null;
+  expected_value: number;
+  avg_hold_h: number;
+  max_loss_streak: number;
+}
+
+interface ExitBreakdown {
+  exit_reason: string;
+  trades: number;
+  wins: number;
+  losses: number;
+  win_rate_pct: number;
+  total_pnl: number;
+  avg_pnl: number;
+}
+
 /* ------------------------------------------------------------------ */
 /* Component                                                           */
 /* ------------------------------------------------------------------ */
@@ -89,16 +115,20 @@ export default function OverviewView() {
   const [recentTrades, setRecentTrades] = useState<RecentTrade[]>([]);
   const [scalperSession, setScalperSession] = useState<ScalperSession | null>(null);
   const [alertSummary, setAlertSummary] = useState<AlertSummary>({ total: 0, critical: 0, warn: 0, info: 0 });
+  const [effectiveness, setEffectiveness] = useState<Effectiveness | null>(null);
+  const [exitBreakdown, setExitBreakdown] = useState<ExitBreakdown[]>([]);
 
   useEffect(() => {
     async function load() {
-      const [summaryRes, scoresRes, posRes, tradesRes, scalperRes, alertsRes] = await Promise.all([
+      const [summaryRes, scoresRes, posRes, tradesRes, scalperRes, alertsRes, effRes, exitRes] = await Promise.all([
         supabase.from("v_dashboard_summary").select("*").single(),
         supabase.from("scores").select("symbol, score_total, state, passes_high_confidence, ts").order("ts", { ascending: false }).limit(30),
         supabase.from("positions").select("symbol, size_units, entry_price, current_price, unrealized_pnl_usd, unrealized_pnl_pct, pool"),
         supabase.from("trades").select("symbol, pnl_usd, exit_reason, exit_at, pool").order("exit_at", { ascending: false }).limit(5),
         supabase.from("scalper_sessions").select("*").in("status", ["active", "requested"]).order("requested_at", { ascending: false }).limit(1).maybeSingle(),
         supabase.from("alerts").select("id, level, acknowledged").eq("acknowledged", false),
+        supabase.from("v_effectiveness_summary").select("*").maybeSingle(),
+        supabase.from("v_effectiveness_by_exit_reason").select("*"),
       ]);
 
       if (summaryRes.data) setSummary(summaryRes.data as Summary);
@@ -126,6 +156,8 @@ export default function OverviewView() {
           info: list.filter((a) => a.level === "info").length,
         });
       }
+      if (effRes.data) setEffectiveness(effRes.data as Effectiveness);
+      if (exitRes.data) setExitBreakdown(exitRes.data as ExitBreakdown[]);
     }
 
     load();
@@ -349,6 +381,71 @@ export default function OverviewView() {
 
       </div>
 
+      {/* EFECTIVIDAD — tarjeta ancha debajo del grid */}
+      <div className="border border-zinc-800 bg-zinc-950 p-4">
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-2">
+            <Target className="w-4 h-4 text-zinc-500" />
+            <span className="text-[11px] uppercase tracking-[0.15em] text-zinc-300">Efectividad · 30 días</span>
+          </div>
+          <Link href="/history" className="text-[10px] text-zinc-500 hover:text-zinc-300 flex items-center gap-1">
+            ver trades <ChevronRight className="w-3 h-3" />
+          </Link>
+        </div>
+
+        {!effectiveness || effectiveness.total_trades === 0 ? (
+          <div className="text-[11px] text-zinc-600">Sin trades cerrados en los últimos 30 días.</div>
+        ) : (
+          <div className="space-y-3">
+            {/* KPIs de efectividad */}
+            <div className="grid grid-cols-3 md:grid-cols-6 gap-2">
+              <MiniKpi label="Win Rate" value={`${effectiveness.win_rate_pct}%`}
+                tone={effectiveness.win_rate_pct >= 50 ? "success" : effectiveness.win_rate_pct >= 35 ? "warn" : "danger"} />
+              <MiniKpi label="Trades" value={`${effectiveness.wins}W / ${effectiveness.losses}L`} />
+              <MiniKpi label="Profit Factor"
+                value={effectiveness.profit_factor != null ? effectiveness.profit_factor.toFixed(2) : "—"}
+                tone={effectiveness.profit_factor != null ? (effectiveness.profit_factor >= 1.5 ? "success" : effectiveness.profit_factor >= 1 ? "warn" : "danger") : "neutral"} />
+              <MiniKpi label="R:R Real"
+                value={effectiveness.reward_risk_ratio != null ? effectiveness.reward_risk_ratio.toFixed(2) : "—"}
+                tone={effectiveness.reward_risk_ratio != null && effectiveness.reward_risk_ratio >= 1.5 ? "success" : "neutral"} />
+              <MiniKpi label="EV / Trade"
+                value={formatUsd(effectiveness.expected_value)}
+                tone={effectiveness.expected_value > 0 ? "success" : effectiveness.expected_value < 0 ? "danger" : "neutral"} />
+              <MiniKpi label="Racha pérdidas" value={`${effectiveness.max_loss_streak}`}
+                tone={effectiveness.max_loss_streak >= 4 ? "danger" : effectiveness.max_loss_streak >= 3 ? "warn" : "neutral"} />
+            </div>
+
+            {/* Desglose por exit reason */}
+            {exitBreakdown.length > 0 && (
+              <div>
+                <div className="text-[10px] uppercase tracking-wider text-zinc-600 mb-1.5">Salidas</div>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-1.5">
+                  {exitBreakdown.map((e) => (
+                    <div key={e.exit_reason} className="bg-zinc-900/50 px-2.5 py-2 border border-zinc-900">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] text-zinc-400 uppercase">{humanizeExit(e.exit_reason)}</span>
+                        <span className="text-[10px] tabular-nums text-zinc-500">{e.trades}</span>
+                      </div>
+                      <div className="flex items-center justify-between mt-1">
+                        <span className={`text-[11px] tabular-nums ${e.total_pnl >= 0 ? "text-emerald-400" : "text-red-400"}`}>
+                          {formatUsd(e.total_pnl)}
+                        </span>
+                        <span className={`text-[10px] tabular-nums ${e.win_rate_pct >= 50 ? "text-emerald-400/70" : "text-red-400/70"}`}>
+                          {e.win_rate_pct}%
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Diagnóstico rápido */}
+            <EffectivenessDiagnosis eff={effectiveness} exits={exitBreakdown} />
+          </div>
+        )}
+      </div>
+
       <div className="text-[10px] text-zinc-600">
         actualiza cada 15s
       </div>
@@ -430,4 +527,70 @@ function scoreColor(score: number): string {
   if (score >= 75) return "text-emerald-400";
   if (score >= 60) return "text-amber-400";
   return "text-zinc-500";
+}
+
+function MiniKpi({ label, value, tone = "neutral" }: { label: string; value: any; tone?: string }) {
+  const color = {
+    neutral: "text-zinc-200", success: "text-emerald-400", warn: "text-amber-400", danger: "text-red-400",
+  }[tone] || "text-zinc-200";
+  return (
+    <div className="bg-zinc-900/50 px-2.5 py-2 border border-zinc-900">
+      <div className="text-[9px] uppercase tracking-wider text-zinc-600">{label}</div>
+      <div className={`text-sm tabular-nums font-mono mt-0.5 ${color}`}>{value}</div>
+    </div>
+  );
+}
+
+function humanizeExit(reason: string): string {
+  const map: Record<string, string> = {
+    stop: "Stop", target: "Target", score_broken: "Score roto", rotation: "Rotación",
+    manual: "Manual", time_stop: "Time stop", trailing_stop: "Trailing",
+    breakeven_stop: "Breakeven", session_end: "Fin sesión",
+  };
+  return map[reason] || reason;
+}
+
+function EffectivenessDiagnosis({ eff, exits }: { eff: Effectiveness; exits: ExitBreakdown[] }) {
+  const issues: string[] = [];
+
+  // Diagnósticos automáticos basados en las métricas
+  if (eff.win_rate_pct < 35) {
+    issues.push("Win rate muy bajo (<35%): las señales de entrada no están alineadas con el movimiento real del precio. Considerá subir el threshold de candidato o agregar filtros.");
+  } else if (eff.win_rate_pct < 50 && (eff.reward_risk_ratio == null || eff.reward_risk_ratio < 2)) {
+    issues.push("Win rate bajo con R:R insuficiente: necesitás que las ganadoras compensen más, o mejorar la selección de entrada.");
+  }
+
+  const stopTrades = exits.find((e) => e.exit_reason === "stop");
+  const targetTrades = exits.find((e) => e.exit_reason === "target");
+  if (stopTrades && targetTrades && stopTrades.trades > targetTrades.trades * 2) {
+    issues.push(`Stops duplican targets (${stopTrades.trades} vs ${targetTrades.trades}): el stop puede estar demasiado apretado o la entrada se da en zonas de alta reversión.`);
+  }
+
+  if (eff.max_loss_streak >= 4) {
+    issues.push(`Racha de ${eff.max_loss_streak} pérdidas seguidas: puede indicar que el sistema operó en un régimen desfavorable sin detenerse a tiempo.`);
+  }
+
+  if (eff.profit_factor != null && eff.profit_factor < 1) {
+    issues.push(`Profit factor ${eff.profit_factor} (<1): las pérdidas superan las ganancias en volumen. El sistema no tiene ventaja estadística en este período.`);
+  }
+
+  if (eff.expected_value < 0) {
+    issues.push(`Expected value negativo (${formatUsd(eff.expected_value)} / trade): en promedio cada trade pierde plata. Revisar señales o pausar hasta recalibrar.`);
+  }
+
+  if (issues.length === 0) return null;
+
+  return (
+    <div className="border border-amber-900/40 bg-amber-950/10 p-3">
+      <div className="text-[10px] uppercase tracking-wider text-amber-400/80 mb-1.5">Diagnóstico</div>
+      <div className="space-y-1.5">
+        {issues.map((issue, i) => (
+          <div key={i} className="text-[11px] text-amber-200/70 leading-snug flex gap-2">
+            <span className="text-amber-400 mt-0.5 flex-shrink-0">▸</span>
+            <span>{issue}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 }
