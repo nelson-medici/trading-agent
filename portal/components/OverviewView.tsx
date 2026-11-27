@@ -7,7 +7,7 @@ import {
   Wallet, Gauge, TrendingUp, DollarSign,
   Layers, Brain, Timer, Bell, History,
   CandlestickChart, ArrowRight, AlertOctagon,
-  AlertTriangle, ChevronRight, Target,
+  AlertTriangle, ChevronRight, Target, Info, X,
 } from "lucide-react";
 
 /* ------------------------------------------------------------------ */
@@ -117,6 +117,7 @@ export default function OverviewView() {
   const [alertSummary, setAlertSummary] = useState<AlertSummary>({ total: 0, critical: 0, warn: 0, info: 0 });
   const [effectiveness, setEffectiveness] = useState<Effectiveness | null>(null);
   const [exitBreakdown, setExitBreakdown] = useState<ExitBreakdown[]>([]);
+  const [diagOpen, setDiagOpen] = useState(false);
 
   useEffect(() => {
     async function load() {
@@ -205,8 +206,85 @@ export default function OverviewView() {
           tone={summary.current_dd && summary.current_dd > 0.08 ? "warn" : "neutral"} icon={Gauge} />
       </div>
 
-      {/* Tarjetas navegables */}
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+      {/* EFECTIVIDAD — debajo de equity */}
+      <div className="border border-zinc-800 bg-zinc-950 p-4">
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-2 min-w-0">
+            <Target className="w-4 h-4 text-zinc-500 flex-shrink-0" />
+            <span className="text-[11px] uppercase tracking-[0.15em] text-zinc-300 flex-shrink-0">Efectividad · 30d</span>
+            {/* CTA diagnóstico */}
+            {effectiveness && effectiveness.total_trades > 0 && (
+              <div className="relative flex-shrink-0">
+                <button onClick={() => setDiagOpen(!diagOpen)}
+                  className="flex items-center gap-1 border border-sky-800 bg-sky-950/20 px-2 py-0.5 text-[9px] uppercase tracking-wider text-sky-300 hover:bg-sky-950/40 transition-colors">
+                  <Info className="w-3 h-3" /> diagnóstico
+                </button>
+                {diagOpen && (
+                  <>
+                    <div className="fixed inset-0 z-40" onClick={() => setDiagOpen(false)} />
+                    <div className="absolute left-0 top-full mt-1 bg-zinc-950 border border-sky-800/50 w-[min(420px,calc(100vw-2rem))] z-50 shadow-2xl">
+                      <div className="px-3 py-2 border-b border-sky-900/30 flex items-center justify-between">
+                        <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-sky-300">
+                          <Info className="w-3 h-3" /> diagnóstico automático
+                        </div>
+                        <button onClick={() => setDiagOpen(false)} className="text-zinc-500 hover:text-zinc-300">
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                      <div className="p-3">
+                        <EffectivenessDiagnosis eff={effectiveness} exits={exitBreakdown} />
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+            {/* Salidas inline */}
+            {exitBreakdown.length > 0 && (
+              <div className="flex items-center gap-1.5 ml-2 overflow-x-auto flex-shrink min-w-0">
+                <span className="text-[9px] uppercase tracking-wider text-zinc-600 flex-shrink-0">salidas</span>
+                {exitBreakdown.map((e) => (
+                  <span key={e.exit_reason}
+                    className="flex items-center gap-1 text-[10px] border border-zinc-800 px-1.5 py-0.5 whitespace-nowrap flex-shrink-0">
+                    <span className="text-zinc-400 uppercase">{humanizeExit(e.exit_reason)}</span>
+                    <span className="text-zinc-500 tabular-nums">{e.trades}</span>
+                    <span className={`tabular-nums ${e.total_pnl >= 0 ? "text-emerald-400/70" : "text-red-400/70"}`}>
+                      {e.total_pnl >= 0 ? "+" : ""}{e.total_pnl.toFixed(2)}
+                    </span>
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+          <Link href="/history" className="text-[10px] text-zinc-500 hover:text-zinc-300 flex items-center gap-1 flex-shrink-0 ml-2">
+            trades <ChevronRight className="w-3 h-3" />
+          </Link>
+        </div>
+
+        {!effectiveness || effectiveness.total_trades === 0 ? (
+          <div className="text-[11px] text-zinc-600">Sin trades cerrados en los últimos 30 días.</div>
+        ) : (
+          <div className="grid grid-cols-3 md:grid-cols-6 gap-2">
+            <MiniKpi label="Win Rate" value={`${effectiveness.win_rate_pct}%`}
+              tone={effectiveness.win_rate_pct >= 50 ? "success" : effectiveness.win_rate_pct >= 35 ? "warn" : "danger"} />
+            <MiniKpi label="Trades" value={`${effectiveness.wins}W / ${effectiveness.losses}L`} />
+            <MiniKpi label="Profit Factor"
+              value={effectiveness.profit_factor != null ? effectiveness.profit_factor.toFixed(2) : "—"}
+              tone={effectiveness.profit_factor != null ? (effectiveness.profit_factor >= 1.5 ? "success" : effectiveness.profit_factor >= 1 ? "warn" : "danger") : "neutral"} />
+            <MiniKpi label="R:R Real"
+              value={effectiveness.reward_risk_ratio != null ? effectiveness.reward_risk_ratio.toFixed(2) : "—"}
+              tone={effectiveness.reward_risk_ratio != null && effectiveness.reward_risk_ratio >= 1.5 ? "success" : "neutral"} />
+            <MiniKpi label="EV / Trade"
+              value={formatUsd(effectiveness.expected_value)}
+              tone={effectiveness.expected_value > 0 ? "success" : effectiveness.expected_value < 0 ? "danger" : "neutral"} />
+            <MiniKpi label="Racha pérdidas" value={`${effectiveness.max_loss_streak}`}
+              tone={effectiveness.max_loss_streak >= 4 ? "danger" : effectiveness.max_loss_streak >= 3 ? "warn" : "neutral"} />
+          </div>
+        )}
+      </div>
+
+      {/* Tarjetas navegables — fila 1: Portfolio, Scalper, Alertas */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
 
         {/* PORTAFOLIO */}
         <NavCard href="/portfolio" title="Portafolio" icon={Layers}
@@ -238,31 +316,6 @@ export default function OverviewView() {
                   {formatUsd(totalUnrealPnl)}
                 </span>
               </div>
-            </div>
-          )}
-        </NavCard>
-
-        {/* DECISIONES (scoring) */}
-        <NavCard href="/decisions" title="Decisiones" icon={Brain}
-          badge={`${summary.candidates ?? 0} candidatos`}>
-          {topScores.length === 0 ? (
-            <div className="text-[11px] text-zinc-600">Sin scores. Esperando ciclo del engine.</div>
-          ) : (
-            <div className="space-y-1.5">
-              {topScores.map((s) => (
-                <div key={s.symbol} className="flex items-center justify-between text-[11px]">
-                  <div className="flex items-center gap-2">
-                    <span className="text-zinc-200 font-medium">{s.symbol}</span>
-                    <StateBadge state={s.state} />
-                  </div>
-                  <span className={`tabular-nums font-medium ${scoreColor(s.score_total)}`}>
-                    {s.score_total.toFixed(1)}
-                  </span>
-                </div>
-              ))}
-              {scores.length > 5 && (
-                <div className="text-[10px] text-zinc-600">+{scores.length - 5} más</div>
-              )}
             </div>
           )}
         </NavCard>
@@ -331,6 +384,36 @@ export default function OverviewView() {
           )}
         </NavCard>
 
+      </div>
+
+      {/* Tarjetas navegables — fila 2: Decisiones, Histórico, Charts */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+
+        {/* DECISIONES (scoring) */}
+        <NavCard href="/decisions" title="Decisiones" icon={Brain}
+          badge={`${summary.candidates ?? 0} candidatos`}>
+          {topScores.length === 0 ? (
+            <div className="text-[11px] text-zinc-600">Sin scores. Esperando ciclo del engine.</div>
+          ) : (
+            <div className="space-y-1.5">
+              {topScores.map((s) => (
+                <div key={s.symbol} className="flex items-center justify-between text-[11px]">
+                  <div className="flex items-center gap-2">
+                    <span className="text-zinc-200 font-medium">{s.symbol}</span>
+                    <StateBadge state={s.state} />
+                  </div>
+                  <span className={`tabular-nums font-medium ${scoreColor(s.score_total)}`}>
+                    {s.score_total.toFixed(1)}
+                  </span>
+                </div>
+              ))}
+              {scores.length > 5 && (
+                <div className="text-[10px] text-zinc-600">+{scores.length - 5} más</div>
+              )}
+            </div>
+          )}
+        </NavCard>
+
         {/* HISTÓRICO */}
         <NavCard href="/history" title="Histórico" icon={History}
           badge={recentTrades.length > 0 ? `últimos ${recentTrades.length}` : undefined}>
@@ -379,71 +462,6 @@ export default function OverviewView() {
           )}
         </NavCard>
 
-      </div>
-
-      {/* EFECTIVIDAD — tarjeta ancha debajo del grid */}
-      <div className="border border-zinc-800 bg-zinc-950 p-4">
-        <div className="flex items-center justify-between mb-3">
-          <div className="flex items-center gap-2">
-            <Target className="w-4 h-4 text-zinc-500" />
-            <span className="text-[11px] uppercase tracking-[0.15em] text-zinc-300">Efectividad · 30 días</span>
-          </div>
-          <Link href="/history" className="text-[10px] text-zinc-500 hover:text-zinc-300 flex items-center gap-1">
-            ver trades <ChevronRight className="w-3 h-3" />
-          </Link>
-        </div>
-
-        {!effectiveness || effectiveness.total_trades === 0 ? (
-          <div className="text-[11px] text-zinc-600">Sin trades cerrados en los últimos 30 días.</div>
-        ) : (
-          <div className="space-y-3">
-            {/* KPIs de efectividad */}
-            <div className="grid grid-cols-3 md:grid-cols-6 gap-2">
-              <MiniKpi label="Win Rate" value={`${effectiveness.win_rate_pct}%`}
-                tone={effectiveness.win_rate_pct >= 50 ? "success" : effectiveness.win_rate_pct >= 35 ? "warn" : "danger"} />
-              <MiniKpi label="Trades" value={`${effectiveness.wins}W / ${effectiveness.losses}L`} />
-              <MiniKpi label="Profit Factor"
-                value={effectiveness.profit_factor != null ? effectiveness.profit_factor.toFixed(2) : "—"}
-                tone={effectiveness.profit_factor != null ? (effectiveness.profit_factor >= 1.5 ? "success" : effectiveness.profit_factor >= 1 ? "warn" : "danger") : "neutral"} />
-              <MiniKpi label="R:R Real"
-                value={effectiveness.reward_risk_ratio != null ? effectiveness.reward_risk_ratio.toFixed(2) : "—"}
-                tone={effectiveness.reward_risk_ratio != null && effectiveness.reward_risk_ratio >= 1.5 ? "success" : "neutral"} />
-              <MiniKpi label="EV / Trade"
-                value={formatUsd(effectiveness.expected_value)}
-                tone={effectiveness.expected_value > 0 ? "success" : effectiveness.expected_value < 0 ? "danger" : "neutral"} />
-              <MiniKpi label="Racha pérdidas" value={`${effectiveness.max_loss_streak}`}
-                tone={effectiveness.max_loss_streak >= 4 ? "danger" : effectiveness.max_loss_streak >= 3 ? "warn" : "neutral"} />
-            </div>
-
-            {/* Desglose por exit reason */}
-            {exitBreakdown.length > 0 && (
-              <div>
-                <div className="text-[10px] uppercase tracking-wider text-zinc-600 mb-1.5">Salidas</div>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-1.5">
-                  {exitBreakdown.map((e) => (
-                    <div key={e.exit_reason} className="bg-zinc-900/50 px-2.5 py-2 border border-zinc-900">
-                      <div className="flex items-center justify-between">
-                        <span className="text-[10px] text-zinc-400 uppercase">{humanizeExit(e.exit_reason)}</span>
-                        <span className="text-[10px] tabular-nums text-zinc-500">{e.trades}</span>
-                      </div>
-                      <div className="flex items-center justify-between mt-1">
-                        <span className={`text-[11px] tabular-nums ${e.total_pnl >= 0 ? "text-emerald-400" : "text-red-400"}`}>
-                          {formatUsd(e.total_pnl)}
-                        </span>
-                        <span className={`text-[10px] tabular-nums ${e.win_rate_pct >= 50 ? "text-emerald-400/70" : "text-red-400/70"}`}>
-                          {e.win_rate_pct}%
-                        </span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Diagnóstico rápido */}
-            <EffectivenessDiagnosis eff={effectiveness} exits={exitBreakdown} />
-          </div>
-        )}
       </div>
 
       <div className="text-[10px] text-zinc-600">
