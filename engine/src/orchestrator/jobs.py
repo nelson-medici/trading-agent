@@ -670,6 +670,139 @@ async def _snapshot_pool(pool_name: str) -> None:
 # ROLLOVER / BACKUP / REPORTS
 # ============================================================
 
+async def evaluate_strategies() -> None:
+    """
+    Corre todas las estrategias habilitadas sobre todos los símbolos del universo
+    del pool asignado. Guarda señales en strategy_signals. Las señales viables
+    se convierten en decisiones de ese pool.
+    """
+    from src.core.db import get_db
+    from src.core.config import DBConfig
+    from src.strategies.registry import get_strategy
+    from src.risk.sizing import compute_position_size
+    from src.portfolio.manager import PortfolioManager
+
+    db = get_db()
+    cfg = DBConfig(db)
+    await cfg.refresh()
+
+    strategies_config = cfg.get("strategies.enabled", {})
+    if not strategies_config:
+        log.info("no_strategies_enabled")
+        return
+
+    portfolio = PortfolioManager()
+
+    for strat_name, strat_cfg in strategies_config.items():
+        if not strat_cfg.get("enabled", False):
+            continue
+
+        pools = strat_cfg.get("pools", ["tactical"])
+        min_conf = strat_cfg.get("min_confidence", 70)
+        params = strat_cfg.get("params", {})
+
+        strategy = get_strategy(strat_name, params)
+        if strategy is None:
+            log.warning("unknown_strategy", name=strat_name)
+            continue
+
+        for pool_name in pools:
+            pool_cfg = cfg.pool(pool_name)
+            universe = pool_cfg.get("universe", [])
+            timeframe = pool_cfg.get("timeframe", "1h")
+            risk_limits = pool_cfg.get("risk_limits", {})
+            stops_cfg = pool_cfg.get("stops", {})
+
+            for symbol in universe:
+                try:
+                    rows = await db.select(
+                        "ohlcv",
+                        filters={"symbol": symbol, "timeframe": timeframe},
+                        order_by="-ts",
+                        limit=200,
+                    )
+                    if len(rows) < 50:
+                        continue
+                    df = pd.DataFrame(rows)
+                    df["ts"] = pd.to_datetime(df["ts"])
+                    for c in ["open", "high", "low", "close", "volume"]:
+                        df[c] = pd.to_numeric(df[c])
+
+                    signal = strategy.evaluate(df, symbol)
+
+                    # Guardar la señal (incluso NONE para debug)
+                    await db.insert("strategy_signals", {
+                        "strategy_name": signal.strategy_name,
+                        "symbol": signal.symbol,
+                        "pool": pool_name,
+                        "ts": signal.ts or _utc_now_iso(),
+                        "action": signal.action,
+                        "confidence": signal.confidence,
+                        "entry_price": signal.entry_price,
+                        "stop_price": signal.stop_price,
+                        "target_price": signal.target_price,
+                        "reasoning": signal.reasoning,
+                        "metadata": signal.metadata,
+                    })
+
+                    if signal.action != "BUY":
+                        continue
+                    if signal.confidence < min_conf:
+                        log.info("signal_below_confidence", strategy=strat_name, symbol=symbol, conf=signal.confidence)
+                        continue
+
+                    # ¿Ya hay posición?
+                    if await portfolio.has_open_position(symbol, pool_name):
+                        continue
+
+                    equity = await portfolio.current_equity_pool(pool_name)
+                    is_btc_eth = symbol in ("BTC/USDT", "ETH/USDT")
+                    cur_pct = await portfolio.current_position_pct_pool(symbol, pool_name)
+
+                    sizing = compute_position_size(
+                        equity_usd=equity,
+                        entry_price=signal.entry_price,
+                        stop_price=signal.stop_price,
+                        target_price=signal.target_price,
+                        is_btc_or_eth=is_btc_eth,
+                        current_position_pct=cur_pct,
+                        max_risk_per_trade_pct=risk_limits.get("max_risk_per_trade_pct", 0.01),
+                        max_position_pct=risk_limits.get("max_position_pct", 0.20),
+                        max_position_btc_eth_pct=risk_limits.get("max_position_btc_eth_pct", 0.30),
+                        min_position_size_usd=risk_limits.get("min_position_size_usd", 15),
+                        min_profit_to_commission_ratio=stops_cfg.get("min_profit_to_commission_ratio", 3.0),
+                    )
+                    if not sizing.is_viable:
+                        continue
+
+                    open_count = len(await db.select("positions", filters={"pool": pool_name}))
+                    if open_count >= risk_limits.get("max_open_positions", 2):
+                        continue
+
+                    decision = {
+                        "symbol": symbol,
+                        "action": "BUY",
+                        "score": signal.confidence,
+                        "pool": pool_name,
+                        "justification": f"[{strat_name}] {signal.reasoning}",
+                        "risks": [],
+                        "stop_price": signal.stop_price,
+                        "target_price": signal.target_price,
+                        "size_units": sizing.size_units,
+                        "notional_usd": sizing.notional_usd,
+                        "entry_price": signal.entry_price,
+                        "status": "pending",
+                        "requires_confirmation": False,
+                    }
+
+                    inserted = await db.insert("decisions", decision)
+                    log.info("strategy_decision", strategy=strat_name, pool=pool_name, symbol=symbol, conf=signal.confidence)
+                    await _execute_paper_decision(inserted, pool_name)
+
+                except Exception as e:
+                    log.error("strategy_eval_failed", strategy=strat_name, symbol=symbol, error=str(e), exc_info=True)
+
+
 async def rollover_daily_dd() -> None: log.info("dd_daily_rollover")
 async def rollover_weekly_dd() -> None: log.info("dd_weekly_rollover")
 async def backup_db() -> None: log.info("backup_skipped")

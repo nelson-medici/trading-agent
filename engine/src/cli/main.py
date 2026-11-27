@@ -174,5 +174,89 @@ def eval_paper_phase():
     print("Paper phase evaluation - to be implemented after data available")
 
 
+@cli.command("backtest")
+@click.option("--strategy", required=True, help="Nombre de la estrategia (ej: orb_intraday)")
+@click.option("--symbol", required=True, help="Símbolo (ej: BTC/USDT)")
+@click.option("--timeframe", default="1h", help="Timeframe (1h, 15m, 4h)")
+@click.option("--capital", default=10_000.0, type=float, help="Capital inicial")
+@click.option("--risk-pct", default=0.01, type=float, help="Risk per trade (0.01 = 1%)")
+@click.option("--save", is_flag=True, help="Guardar resultado en Supabase")
+def backtest(strategy: str, symbol: str, timeframe: str, capital: float, risk_pct: float, save: bool):
+    """Correr backtest de una estrategia sobre histórico."""
+    configure_logging("INFO")
+    asyncio.run(_backtest(strategy, symbol, timeframe, capital, risk_pct, save))
+
+
+async def _backtest(strategy_name: str, symbol: str, timeframe: str, capital: float, risk_pct: float, save: bool):
+    import structlog
+    log = structlog.get_logger()
+    import pandas as pd
+    from src.core.db import get_db
+    from src.strategies.registry import get_strategy, all_strategies
+    from src.backtest.engine import BacktestEngine
+
+    strategy = get_strategy(strategy_name)
+    if strategy is None:
+        print(f"Estrategia desconocida: {strategy_name}")
+        print(f"Disponibles: {all_strategies()}")
+        return
+
+    db = get_db()
+    rows = await db.select(
+        "ohlcv",
+        filters={"symbol": symbol, "timeframe": timeframe},
+        order_by="ts",
+        limit=5000,
+    )
+    if len(rows) < 100:
+        print(f"Insuficiente data para {symbol} {timeframe}: {len(rows)} rows. Correr backfill primero.")
+        return
+
+    df = pd.DataFrame(rows)
+    engine = BacktestEngine(initial_capital=capital, risk_per_trade_pct=risk_pct)
+
+    print(f"\n=== Backtest: {strategy_name} / {symbol} / {timeframe} ===")
+    print(f"Capital inicial: ${capital:,.2f} · Risk/trade: {risk_pct*100:.2f}%")
+    print(f"Data: {len(rows)} candles desde {rows[0]['ts'][:10]} hasta {rows[-1]['ts'][:10]}\n")
+
+    result = engine.run(strategy, df, symbol, timeframe)
+
+    print(f"Trades:        {result.total_trades}")
+    print(f"Win rate:      {result.win_rate*100:.1f}%  ({result.winning_trades}W / {result.losing_trades}L)")
+    print(f"Profit factor: {result.profit_factor:.2f}")
+    print(f"Sharpe:        {result.sharpe_ratio:.2f}")
+    print(f"Max DD:        {result.max_drawdown_pct*100:.2f}%")
+    print(f"Avg win:       ${result.avg_win_usd:.2f}")
+    print(f"Avg loss:      ${result.avg_loss_usd:.2f}")
+    print(f"Avg hold:      {result.avg_hold_hours:.1f}h")
+    print(f"Return total:  {result.total_return_pct*100:.2f}%")
+    print(f"Capital final: ${result.final_capital:,.2f}")
+
+    if save and result.total_trades > 0:
+        await db.insert("backtest_results", {
+            "strategy_name": result.strategy_name,
+            "symbol": result.symbol,
+            "timeframe": result.timeframe,
+            "start_date": result.start_date,
+            "end_date": result.end_date,
+            "initial_capital": result.initial_capital,
+            "final_capital": result.final_capital,
+            "total_return_pct": result.total_return_pct,
+            "total_trades": result.total_trades,
+            "winning_trades": result.winning_trades,
+            "losing_trades": result.losing_trades,
+            "win_rate": result.win_rate,
+            "profit_factor": min(result.profit_factor, 999.99),
+            "sharpe_ratio": result.sharpe_ratio,
+            "max_drawdown_pct": result.max_drawdown_pct,
+            "avg_win_usd": result.avg_win_usd,
+            "avg_loss_usd": result.avg_loss_usd,
+            "avg_hold_hours": result.avg_hold_hours,
+            "params": strategy.params,
+            "trades_detail": [t.__dict__ for t in result.trades[:100]],
+        })
+        print(f"\nGuardado en backtest_results.")
+
+
 if __name__ == "__main__":
     cli()

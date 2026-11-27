@@ -39,6 +39,9 @@ def setup_jobs() -> None:
     # Equity snapshot cada 15 min
     scheduler.add_job(jobs.snapshot_equity, IntervalTrigger(minutes=15), id="equity", max_instances=1)
 
+    # Strategies cada 30 min (ORB y futuras)
+    scheduler.add_job(jobs.evaluate_strategies, IntervalTrigger(minutes=30), id="strategies", max_instances=1)
+
     # Rollovers y reports
     scheduler.add_job(jobs.backup_db, CronTrigger(hour=4, minute=0), id="backup")
     scheduler.add_job(jobs.daily_report, CronTrigger(hour=23, minute=55), id="daily")
@@ -58,6 +61,7 @@ async def run_startup_jobs() -> None:
         await jobs.ingest_market_data()
         await jobs.compute_features_and_score()
         await jobs.evaluate_decisions()
+        await jobs.evaluate_strategies()
         await jobs.snapshot_equity()
         await jobs.watch_positions()
         log.info("startup_jobs_done")
