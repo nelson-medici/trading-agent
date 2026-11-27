@@ -45,6 +45,12 @@ def setup_jobs() -> None:
     # Backtest queue cada 1 min (procesa jobs disparados desde el portal)
     scheduler.add_job(jobs.process_backtest_queue, IntervalTrigger(minutes=1), id="backtest_queue", max_instances=1)
 
+    # Scalper: tick de sesión cada 15 s (barato si no hay sesión) + detector cada 3 min
+    scheduler.add_job(jobs.run_scalper_tick, IntervalTrigger(seconds=15), id="scalper_tick",
+                      max_instances=1, coalesce=True, misfire_grace_time=10)
+    scheduler.add_job(jobs.detect_scalper_opportunities, IntervalTrigger(minutes=3), id="scalper_scan",
+                      max_instances=1, coalesce=True)
+
     # Rollovers y reports
     scheduler.add_job(jobs.backup_db, CronTrigger(hour=4, minute=0), id="backup")
     scheduler.add_job(jobs.daily_report, CronTrigger(hour=23, minute=55), id="daily")

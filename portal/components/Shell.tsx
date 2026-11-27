@@ -3,9 +3,9 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase";
-import { Activity, Wallet, Brain, Settings as SettingsIcon, Shield, Terminal, LogOut, User, Zap, CandlestickChart, History, Bell, AlertTriangle, AlertOctagon, Info, Menu, X } from "lucide-react";
+import { Activity, Wallet, Brain, Settings as SettingsIcon, Shield, Terminal, LogOut, User, Zap, CandlestickChart, History, Bell, Timer, AlertTriangle, AlertOctagon, Info, Menu, X } from "lucide-react";
 
-type View = "overview" | "portfolio" | "decisions" | "charts" | "strategies" | "history" | "config" | "control";
+type View = "overview" | "portfolio" | "decisions" | "charts" | "strategies" | "scalper" | "history" | "config" | "control";
 
 // Configuración ya NO está en la nav principal — es un CTA en el header
 const NAV: { id: View; label: string; icon: any; href: string }[] = [
@@ -14,6 +14,7 @@ const NAV: { id: View; label: string; icon: any; href: string }[] = [
   { id: "decisions", label: "Decisiones", icon: Brain, href: "/decisions" },
   { id: "charts", label: "Charts", icon: CandlestickChart, href: "/charts" },
   { id: "strategies", label: "Strategies", icon: Zap, href: "/strategies" },
+  { id: "scalper", label: "Scalper", icon: Timer, href: "/scalper" },
   { id: "history", label: "Histórico", icon: History, href: "/history" },
   { id: "control", label: "Control", icon: Shield, href: "/control" },
 ];
@@ -24,6 +25,7 @@ const VIEW_META: Record<View, { label: string }> = {
   decisions: { label: "Decisiones" },
   charts: { label: "Charts" },
   strategies: { label: "Strategies" },
+  scalper: { label: "Scalper manual" },
   history: { label: "Histórico de trades" },
   config: { label: "Configuración" },
   control: { label: "Control" },
@@ -42,11 +44,11 @@ interface HeaderKPIs {
 
 interface Alert {
   id: string;
-  severity: string;
+  severity: string;   // columna `level` en la DB
   category: string;
   title: string;
-  detail: string | null;
-  pool: string | null;
+  detail: string | null;  // columna `message` en la DB
+  href: string | null;    // metadata.href (alertas accionables, ej. oportunidad de scalper)
   acknowledged: boolean;
   created_at: string;
 }
@@ -90,10 +92,13 @@ export default function Shell({ current, children }: { current: View; children: 
     async function loadAlerts() {
       const { data } = await supabase
         .from("alerts")
-        .select("id, severity, category, title, detail, pool, acknowledged, created_at")
+        .select("id, level, category, title, message, metadata, acknowledged, created_at")
         .order("created_at", { ascending: false })
         .limit(20);
-      if (data) setAlerts(data as Alert[]);
+      if (data) setAlerts(data.map((a: any) => ({
+        id: a.id, severity: a.level, category: a.category, title: a.title, detail: a.message,
+        href: a.metadata?.href ?? null, acknowledged: a.acknowledged, created_at: a.created_at,
+      })));
     }
     loadAlerts();
     const iv = setInterval(loadAlerts, 15000);
@@ -378,7 +383,6 @@ function AlertRow({ alert, onAck }: { alert: Alert; onAck: () => void }) {
         <div className="flex-1 min-w-0">
           <div className="flex items-baseline justify-between gap-2">
             <div className="flex items-center gap-1.5 text-[11px]">
-              {alert.pool && <span className="uppercase text-[9px] tracking-wider text-zinc-600">[{alert.pool}]</span>}
               <span className="text-zinc-200 font-medium truncate">{alert.title}</span>
             </div>
             <span className="text-[9px] text-zinc-600 tabular-nums whitespace-nowrap">{relTime}</span>
@@ -388,6 +392,9 @@ function AlertRow({ alert, onAck }: { alert: Alert; onAck: () => void }) {
           )}
           <div className="flex items-center gap-2 mt-1">
             <span className="text-[9px] uppercase tracking-wider text-zinc-600">{alert.category}</span>
+            {alert.href && (
+              <Link href={alert.href} className="text-[9px] uppercase tracking-wider text-lime-400 hover:underline">abrir →</Link>
+            )}
             {!alert.acknowledged && (
               <button onClick={onAck} className="ml-auto text-[9px] uppercase tracking-wider text-zinc-500 hover:text-lime-400">ack</button>
             )}

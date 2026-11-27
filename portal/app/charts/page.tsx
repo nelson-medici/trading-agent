@@ -44,6 +44,14 @@ export default function ChartsPage() {
   const [loading, setLoading] = useState(true);
   const [assetClass, setAssetClass] = useState<"crypto" | "equities">("crypto");
   const [symbol, setSymbol] = useState("BTC/USDT");
+
+  // Soporta links tipo /charts?symbol=SOL/USDT (desde histórico, decisiones, scalper)
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search).get("symbol");
+    if (!q) return;
+    if (UNIVERSE_EQUITIES.includes(q)) { setAssetClass("equities"); setSymbol(q); }
+    else if (UNIVERSE_CRYPTO.includes(q)) { setAssetClass("crypto"); setSymbol(q); }
+  }, []);
   const [timeframe, setTimeframe] = useState("1h");
   const [showEMA20, setShowEMA20] = useState(true);
   const [showEMA50, setShowEMA50] = useState(true);

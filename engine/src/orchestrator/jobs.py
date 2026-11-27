@@ -725,6 +725,28 @@ async def _snapshot_pool(pool_name: str) -> None:
 
 
 # ============================================================
+# SCALPER (sesiones manuales + detector de oportunidades)
+# ============================================================
+
+async def run_scalper_tick() -> None:
+    """Cada 15 s. No hace nada (1 query) si no hay sesión requested/active."""
+    try:
+        from src.scalper.runtime import run_tick
+        await run_tick()
+    except Exception as e:
+        log.error("scalper_tick_failed", error=str(e), exc_info=True)
+
+
+async def detect_scalper_opportunities() -> None:
+    """Cada 3 min. Actualiza el radar y alerta si un símbolo está scalpeable."""
+    try:
+        from src.scalper.runtime import run_scan
+        await run_scan()
+    except Exception as e:
+        log.error("scalper_scan_job_failed", error=str(e), exc_info=True)
+
+
+# ============================================================
 # ROLLOVER / BACKUP / REPORTS
 # ============================================================
 
