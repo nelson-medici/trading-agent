@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase";
-import { Activity, Wallet, Brain, Settings as SettingsIcon, Shield, Terminal, Wifi, Server, LogOut, User, Zap, CandlestickChart } from "lucide-react";
+import { Activity, Wallet, Brain, Settings as SettingsIcon, Shield, Terminal, LogOut, User, Zap, CandlestickChart } from "lucide-react";
 
 type View = "overview" | "portfolio" | "decisions" | "charts" | "strategies" | "config" | "control";
 
@@ -91,29 +91,23 @@ export default function Shell({ current, children }: { current: View; children: 
             </div>
           </div>
           <div className="flex items-center gap-3 text-[11px]">
-            {/* KPIs permanentes */}
+            {/* KPIs permanentes — compactos, sin separadores */}
             {kpis && (
-              <div className="hidden md:flex items-center gap-3 border border-zinc-800 bg-zinc-950 px-3 py-1">
+              <div className="hidden md:flex items-center gap-4 border border-zinc-800 bg-zinc-950 px-3 py-1"
+                title={`Engine: ${kpis.engine_status ?? "unknown"} · dev mode · paper broker`}>
                 <KpiItem label="Equity" value={kpis.current_equity != null ? `$${kpis.current_equity.toFixed(2)}` : "—"} tone="accent" />
-                <span className="text-zinc-800">|</span>
                 <KpiItem label="Inv" value={kpis.total_invested != null ? `$${kpis.total_invested.toFixed(0)}` : "—"} />
-                <span className="text-zinc-800">|</span>
                 <KpiItem
                   label="Gain"
                   value={kpis.total_gain != null ? `${kpis.total_gain >= 0 ? "+" : ""}$${kpis.total_gain.toFixed(2)}` : "—"}
                   sub={kpis.total_gain_pct != null ? `${(kpis.total_gain_pct * 100).toFixed(1)}%` : undefined}
                   tone={(kpis.total_gain ?? 0) > 0 ? "success" : (kpis.total_gain ?? 0) < 0 ? "danger" : "neutral"}
                 />
-                <span className="text-zinc-800">|</span>
                 <KpiItem label="Pos" value={kpis.open_positions ?? 0} />
+                <span className={`w-1.5 h-1.5 rounded-full ${kpis.engine_status === "healthy" ? "bg-lime-400 animate-pulse" : "bg-amber-500"}`}
+                  title={kpis.engine_status === "healthy" ? "Engine healthy" : "Engine stale"} />
               </div>
             )}
-
-            <div className="hidden md:flex items-center gap-2">
-              <span className={`w-1.5 h-1.5 rounded-full ${kpis?.engine_status === "healthy" ? "bg-lime-400 animate-pulse" : "bg-amber-500"}`} />
-              <span className="text-zinc-400 text-[10px]">dev · paper</span>
-            </div>
-            <div className="hidden xl:block text-zinc-500 text-[10px]">{now.toISOString().slice(11, 19)} <span className="text-zinc-700">UTC</span></div>
 
             {/* CTA Configuración */}
             <Link href="/config"
@@ -160,11 +154,9 @@ export default function Shell({ current, children }: { current: View; children: 
               {v.label}
             </Link>
           ))}
-          <div className="ml-auto flex items-center gap-2 text-[10px] text-zinc-500 pr-2">
-            <Server className="w-3 h-3" />
-            <span>engine.local</span>
-            <span className="text-zinc-700">·</span>
-            <Wifi className="w-3 h-3 text-lime-400" />
+          <div className="ml-auto hidden lg:flex items-center gap-2 text-[10px] text-zinc-500 pr-2">
+            <span className="tabular-nums">{now.toISOString().slice(11, 19)}</span>
+            <span className="text-zinc-700">UTC</span>
           </div>
         </nav>
       </header>
