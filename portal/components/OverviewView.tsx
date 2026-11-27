@@ -2,12 +2,15 @@
 import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase";
 import { formatUsd, formatPct } from "@/lib/utils";
-import { Wallet, Layers, Gauge, Activity, Eye } from "lucide-react";
+import { Wallet, Layers, Gauge, Activity, Eye, TrendingUp, DollarSign } from "lucide-react";
 
 interface Summary {
   current_equity: number | null;
   hwm: number | null;
   current_dd: number | null;
+  total_invested: number | null;
+  total_gain: number | null;
+  total_gain_pct: number | null;
   open_positions: number | null;
   candidates: number | null;
   watchlist_count: number | null;
@@ -84,13 +87,25 @@ export default function OverviewView() {
 
   return (
     <div className="space-y-6">
-      {/* Stats row */}
-      <div className="grid grid-cols-2 lg:grid-cols-6 gap-3">
-        <Stat label="Equity" value={summary.current_equity != null ? formatUsd(summary.current_equity) : "—"} icon={Wallet} tone="accent" />
-        <Stat label="HWM" value={summary.hwm != null ? formatUsd(summary.hwm) : "—"} />
+      {/* Stats row 1 — plata */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <Stat label="Equity actual" value={summary.current_equity != null ? formatUsd(summary.current_equity) : "—"} icon={Wallet} tone="accent" />
+        <Stat label="Inversión" value={summary.total_invested != null ? formatUsd(summary.total_invested) : "—"} icon={DollarSign} sub="Aportes netos" />
+        <Stat
+          label="Ganancia"
+          value={summary.total_gain != null ? formatUsd(summary.total_gain) : "—"}
+          sub={summary.total_gain_pct != null ? `${(summary.total_gain_pct * 100).toFixed(2)}% vs inversión` : undefined}
+          tone={(summary.total_gain ?? 0) > 0 ? "success" : (summary.total_gain ?? 0) < 0 ? "danger" : "neutral"}
+          icon={TrendingUp}
+        />
+        <Stat label="HWM" value={summary.hwm != null ? formatUsd(summary.hwm) : "—"} sub="Pico histórico" />
+      </div>
+
+      {/* Stats row 2 — estado */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <Stat label="DD desde HWM" value={summary.current_dd != null ? formatPct(summary.current_dd) : "—"} tone={summary.current_dd && summary.current_dd > 0.08 ? "warn" : "neutral"} icon={Gauge} />
-        <Stat label="Posiciones" value={summary.open_positions ?? 0} icon={Layers} />
-        <Stat label="Candidatos / Watch" value={`${summary.candidates ?? 0} / ${summary.watchlist_count ?? 0}`} icon={Eye} />
+        <Stat label="Posiciones abiertas" value={summary.open_positions ?? 0} icon={Layers} />
+        <Stat label="Candidatos / Watch" value={`${summary.candidates ?? 0} / ${summary.watchlist_count ?? 0}`} icon={Eye} sub="Próximos a operar" />
         <Stat label="Engine" value={summary.engine_status ?? "unknown"} sub={summary.engine_last_heartbeat ? new Date(summary.engine_last_heartbeat).toLocaleTimeString() : "sin heartbeat"} tone={summary.engine_status === "healthy" ? "success" : "warn"} icon={Activity} />
       </div>
 
