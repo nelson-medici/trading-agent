@@ -1,7 +1,9 @@
 "use client";
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Activity, Wallet, Brain, Settings as SettingsIcon, Shield, Terminal, Wifi, Server } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { createClient } from "@/lib/supabase";
+import { Activity, Wallet, Brain, Settings as SettingsIcon, Shield, Terminal, Wifi, Server, LogOut, User } from "lucide-react";
 
 type View = "overview" | "portfolio" | "decisions" | "config" | "control";
 
@@ -15,10 +17,26 @@ const NAV: { id: View; label: string; icon: any; href: string }[] = [
 
 export default function Shell({ current, children }: { current: View; children: React.ReactNode }) {
   const [now, setNow] = useState(new Date());
+  const [email, setEmail] = useState<string>("");
+  const [menuOpen, setMenuOpen] = useState(false);
+  const router = useRouter();
+  const supabase = createClient();
+
   useEffect(() => {
     const t = setInterval(() => setNow(new Date()), 1000);
     return () => clearInterval(t);
   }, []);
+
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      if (user?.email) setEmail(user.email);
+    });
+  }, [supabase]);
+
+  async function handleLogout() {
+    await supabase.auth.signOut();
+    router.push("/login");
+  }
 
   const currentView = NAV.find((v) => v.id === current)!;
 
@@ -43,6 +61,30 @@ export default function Shell({ current, children }: { current: View; children: 
               <span className="text-zinc-400">dev · paper broker</span>
             </div>
             <div className="text-zinc-500">{now.toISOString().slice(0, 19).replace("T", " ")} <span className="text-zinc-700">UTC</span></div>
+
+            {/* User menu */}
+            <div className="relative">
+              <button onClick={() => setMenuOpen(!menuOpen)}
+                className="flex items-center gap-2 border border-zinc-800 hover:border-zinc-600 px-2 py-1 text-zinc-400 hover:text-zinc-200">
+                <User className="w-3 h-3" />
+                <span className="hidden md:inline max-w-[160px] truncate">{email || "..."}</span>
+              </button>
+              {menuOpen && (
+                <>
+                  <div className="fixed inset-0 z-40" onClick={() => setMenuOpen(false)} />
+                  <div className="absolute right-0 top-full mt-1 bg-zinc-950 border border-zinc-800 py-1 min-w-[180px] z-50">
+                    <div className="px-3 py-2 text-[10px] text-zinc-500 border-b border-zinc-900">
+                      <div className="truncate">{email}</div>
+                    </div>
+                    <button onClick={handleLogout}
+                      className="w-full text-left px-3 py-2 text-xs text-zinc-300 hover:bg-red-950/30 hover:text-red-300 flex items-center gap-2">
+                      <LogOut className="w-3 h-3" />
+                      Cerrar sesión
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
           </div>
         </div>
         <nav className="border-t border-zinc-900 px-4 flex">
