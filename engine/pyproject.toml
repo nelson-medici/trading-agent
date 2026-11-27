@@ -17,6 +17,8 @@ numpy = "^1.26"
 ta = "^0.11.0"
 # Exchange
 ccxt = "^4.3"
+# Equities data (Yahoo Finance)
+yfinance = "^0.2.40"
 # DB
 supabase = "^2.7"
 asyncpg = "^0.29"

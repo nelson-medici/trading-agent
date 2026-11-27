@@ -35,9 +35,12 @@ async def heartbeat() -> None:
 
 async def ingest_market_data() -> None:
     """
-    Ingesta OHLCV para el universo COMBINADO de todos los pools habilitados.
+    Ingesta OHLCV routeada por asset_class:
+    - crypto (default): CCXT/Binance
+    - equities: Yahoo Finance
     """
     from src.data.market_crypto import CryptoMarketData
+    from src.data.market_equities import EquitiesMarketData
     from src.core.db import get_db
     from src.core.config import DBConfig
 
@@ -45,21 +48,45 @@ async def ingest_market_data() -> None:
     cfg = DBConfig(db)
     await cfg.refresh()
 
-    # Union de todos los universos
-    all_symbols = set()
+    # Agrupar universos por asset_class
+    crypto_symbols = set()
+    equities_symbols = set()
+    timeframes_crypto = set()
+    timeframes_equities = set()
+
     for pool_name in cfg.enabled_pools():
         pool_cfg = cfg.pool(pool_name)
-        all_symbols.update(pool_cfg.get("universe", []))
-    universe = sorted(all_symbols)
+        symbols = pool_cfg.get("universe", [])
+        tf = pool_cfg.get("timeframe", "1h")
+        asset_class = pool_cfg.get("asset_class", "crypto")
+        if asset_class == "equities":
+            equities_symbols.update(symbols)
+            timeframes_equities.add(tf)
+        else:
+            crypto_symbols.update(symbols)
+            timeframes_crypto.add(tf)
 
-    md = CryptoMarketData()
-    try:
-        total = await md.ingest_universe(universe, timeframe="1h", limit=500)
-        # Para tactical que usa 15m, bajamos 15m también
-        total_15m = await md.ingest_universe(universe, timeframe="15m", limit=500)
-        log.info("market_data_ingested", total_1h=total, total_15m=total_15m, universe=universe)
-    finally:
-        await md.close()
+    # Crypto
+    if crypto_symbols:
+        md = CryptoMarketData()
+        try:
+            total = 0
+            for tf in timeframes_crypto:
+                total += await md.ingest_universe(sorted(crypto_symbols), timeframe=tf, limit=500)
+            log.info("crypto_ingested", total=total, symbols=len(crypto_symbols), timeframes=list(timeframes_crypto))
+        finally:
+            await md.close()
+
+    # Equities
+    if equities_symbols:
+        md = EquitiesMarketData()
+        try:
+            total = 0
+            for tf in timeframes_equities:
+                total += await md.ingest_universe(sorted(equities_symbols), timeframe=tf, lookback_days=60)
+            log.info("equities_ingested_total", total=total, symbols=len(equities_symbols), timeframes=list(timeframes_equities))
+        finally:
+            await md.close()
 
 
 async def ingest_news() -> None:
@@ -491,17 +518,31 @@ async def _execute_paper_decision(decision: dict, pool_name: str) -> None:
 
 async def watch_positions() -> None:
     from src.core.db import get_db
+    from src.core.config import DBConfig
     from src.data.market_crypto import CryptoMarketData
+    from src.data.market_equities import EquitiesMarketData
 
     db = get_db()
+    cfg = DBConfig(db)
+    await cfg.refresh()
     positions = await db.select("positions")
     if not positions:
         return
 
-    md = CryptoMarketData()
+    # Cache de providers por asset class
+    crypto_md = CryptoMarketData()
+    equities_md = EquitiesMarketData()
+
+    # Mapeo pool → asset_class
+    pool_class: dict[str, str] = {}
+    for pname in cfg.enabled_pools():
+        pool_class[pname] = cfg.pool(pname).get("asset_class", "crypto")
+
     try:
         for pos in positions:
             try:
+                asset_class = pool_class.get(pos["pool"], "crypto")
+                md = equities_md if asset_class == "equities" else crypto_md
                 ticker = await md.fetch_ticker(pos["symbol"])
                 current_price = float(ticker.get("last", 0))
                 if current_price <= 0:
@@ -531,7 +572,8 @@ async def watch_positions() -> None:
             except Exception as e:
                 log.error("watch_position_failed", symbol=pos.get("symbol"), error=str(e))
     finally:
-        await md.close()
+        await crypto_md.close()
+        await equities_md.close()
 
 
 async def _close_paper_position(position: dict, exit_price: float, reason: str) -> None:
@@ -701,10 +743,15 @@ async def evaluate_strategies() -> None:
         min_conf = strat_cfg.get("min_confidence", 70)
         params = strat_cfg.get("params", {})
 
-        strategy = get_strategy(strat_name, params)
+        # Permite alias: la clave en config puede ser un nickname, strategy_class
+        # apunta al nombre real registrado
+        strategy_class_name = strat_cfg.get("strategy_class", strat_name)
+        strategy = get_strategy(strategy_class_name, params)
         if strategy is None:
-            log.warning("unknown_strategy", name=strat_name)
+            log.warning("unknown_strategy", name=strategy_class_name, alias=strat_name)
             continue
+        # Override del name para que la señal persista con el alias
+        strategy.name = strat_name
 
         for pool_name in pools:
             pool_cfg = cfg.pool(pool_name)
