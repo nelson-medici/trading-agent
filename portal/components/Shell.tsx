@@ -61,6 +61,7 @@ export default function Shell({ current, children }: { current: View; children: 
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [kpis, setKpis] = useState<HeaderKPIs | null>(null);
   const [alerts, setAlerts] = useState<Alert[]>([]);
+  const [brokerMode, setBrokerMode] = useState<string>("paper");
   const router = useRouter();
   const supabase = createClient();
 
@@ -77,10 +78,17 @@ export default function Shell({ current, children }: { current: View; children: 
 
   useEffect(() => {
     async function loadKpis() {
-      const { data } = await supabase.from("v_dashboard_summary").select(
-        "current_equity, total_invested, total_gain, total_gain_pct, open_positions, engine_status, engine_last_heartbeat, engine_seconds_since_heartbeat"
-      ).single();
-      if (data) setKpis(data as HeaderKPIs);
+      const [kpiRes, brokerRes] = await Promise.all([
+        supabase.from("v_dashboard_summary").select(
+          "current_equity, total_invested, total_gain, total_gain_pct, open_positions, engine_status, engine_last_heartbeat, engine_seconds_since_heartbeat"
+        ).single(),
+        supabase.from("config").select("value").eq("key", "execution.broker").single(),
+      ]);
+      if (kpiRes.data) setKpis(kpiRes.data as HeaderKPIs);
+      if (brokerRes.data) {
+        const val = brokerRes.data.value;
+        setBrokerMode(typeof val === "object" && val?.broker ? val.broker : "paper");
+      }
     }
     loadKpis();
     const iv = setInterval(loadKpis, 15000);
@@ -151,7 +159,16 @@ export default function Shell({ current, children }: { current: View; children: 
               <div className="text-[13px] md:text-[15px] text-zinc-100 truncate" style={{ fontFamily: "Fraunces, serif" }}>
                 Quant<span className="text-lime-400">.</span>Agent
               </div>
-              <div className="text-[9px] uppercase tracking-[0.2em] text-zinc-600 -mt-1 hidden md:block">portfolio · risk · execution</div>
+              <div className="text-[9px] uppercase tracking-[0.2em] text-zinc-600 -mt-1 hidden md:flex items-center gap-2">
+                <span>portfolio · risk · execution</span>
+                <span className={`px-1.5 py-0.5 text-[8px] border ${
+                  brokerMode === "binance" ? "border-red-500 text-red-400 bg-red-950/30 animate-pulse" :
+                  brokerMode === "binance_testnet" ? "border-amber-600 text-amber-400 bg-amber-950/30" :
+                  "border-zinc-700 text-zinc-500"
+                }`}>
+                  {brokerMode === "binance" ? "LIVE" : brokerMode === "binance_testnet" ? "TESTNET" : "PAPER"}
+                </span>
+              </div>
             </div>
           </div>
 

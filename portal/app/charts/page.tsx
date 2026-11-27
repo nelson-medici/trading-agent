@@ -298,7 +298,7 @@ export default function ChartsPage() {
           </select>
 
           <div className="flex items-center gap-1">
-            {(assetClass === "equities" ? ["15m", "1h"] : ["15m", "1h", "4h"]).map((tf) => (
+            {(assetClass === "equities" ? ["15m", "1h"] : ["1m", "5m", "15m", "1h", "4h"]).map((tf) => (
               <button key={tf} onClick={() => setTimeframe(tf)}
                 className={`text-[10px] uppercase tracking-wider px-2 py-1 border ${timeframe === tf ? "border-lime-500 text-lime-400 bg-lime-950/30" : "border-zinc-800 text-zinc-500 hover:text-zinc-300"}`}>
                 {tf}

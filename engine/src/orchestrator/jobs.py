@@ -483,63 +483,11 @@ async def _evaluate_pool(pool_name: str, cfg) -> None:
             inserted = await db.insert("decisions", decision)
             log.info("decision_created", pool=pool_name, symbol=symbol, score=score["score_total"], notional=sizing.notional_usd)
 
-            await _execute_paper_decision(inserted, pool_name)
+            from src.execution.executor import execute_decision
+            await execute_decision(inserted, pool_name)
 
         except Exception as e:
             log.error("decision_eval_failed", pool=pool_name, symbol=symbol, error=str(e), exc_info=True)
-
-
-async def _execute_paper_decision(decision: dict, pool_name: str) -> None:
-    from src.core.db import get_db
-    db = get_db()
-
-    try:
-        order_id = str(uuid.uuid4())
-        notional = decision["notional_usd"]
-        commission = notional * 0.001
-
-        order = {
-            "id": order_id,
-            "decision_id": decision["id"],
-            "symbol": decision["symbol"],
-            "side": "BUY",
-            "size_units": decision["size_units"],
-            "limit_price": decision["entry_price"],
-            "stop_price": decision["stop_price"],
-            "target_price": decision["target_price"],
-            "state": "FILLED",
-            "filled_units": decision["size_units"],
-            "avg_fill_price": decision["entry_price"],
-            "commission_paid": commission,
-            "pool": pool_name,
-            "submitted_at": _utc_now_iso(),
-            "filled_at": _utc_now_iso(),
-        }
-        await db.insert("orders", order)
-
-        await db.insert("positions", {
-            "symbol": decision["symbol"],
-            "side": "LONG",
-            "size_units": decision["size_units"],
-            "entry_price": decision["entry_price"],
-            "current_price": decision["entry_price"],
-            "stop_price": decision["stop_price"],
-            "target_price": decision["target_price"],
-            "unrealized_pnl_usd": 0.0,
-            "unrealized_pnl_pct": 0.0,
-            "score_at_entry": decision["score"],
-            "current_score": decision["score"],
-            "pool": pool_name,
-        })
-
-        await db.update("decisions",
-            {"status": "executed", "executed_at": _utc_now_iso()},
-            {"id": decision["id"]},
-        )
-
-        log.info("paper_executed", pool=pool_name, symbol=decision["symbol"], size=decision["size_units"], price=decision["entry_price"])
-    except Exception as e:
-        log.error("paper_execution_failed", decision_id=decision.get("id"), error=str(e), exc_info=True)
 
 
 # ============================================================
@@ -912,7 +860,8 @@ async def evaluate_strategies() -> None:
 
                     inserted = await db.insert("decisions", decision)
                     log.info("strategy_decision", strategy=strat_name, pool=pool_name, symbol=symbol, conf=signal.confidence)
-                    await _execute_paper_decision(inserted, pool_name)
+                    from src.execution.executor import execute_decision
+                    await execute_decision(inserted, pool_name)
 
                 except Exception as e:
                     log.error("strategy_eval_failed", strategy=strat_name, symbol=symbol, error=str(e), exc_info=True)
