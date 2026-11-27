@@ -360,8 +360,7 @@ export default function Shell({ current, children }: { current: View; children: 
       </header>
 
       <div className="px-4 pt-4 md:pt-6 pb-3 md:pb-4">
-        <div className="text-[10px] uppercase tracking-[0.25em] text-zinc-600">// {current}.view</div>
-        <div className="flex items-baseline gap-3 mt-1 flex-wrap">
+        <div className="flex items-baseline gap-3 flex-wrap">
           <h1 className="text-2xl md:text-3xl text-zinc-100" style={{ fontFamily: "Fraunces, serif", fontWeight: 300 }}>{currentMeta.label}</h1>
           <span className="text-[10px] text-zinc-600 font-mono" title={`Build time: ${process.env.NEXT_PUBLIC_BUILD_TIME}`}>
             build {process.env.NEXT_PUBLIC_COMMIT_SHA || "dev"}
