@@ -214,6 +214,45 @@ export default function PortfolioPage() {
           {filteredPositions.length === 0 ? (
             <div className="border border-zinc-800 bg-zinc-950 p-4 text-xs text-zinc-600">No hay posiciones abiertas en este pool.</div>
           ) : (
+            <>
+              {/* MOBILE: cards */}
+              <div className="md:hidden space-y-2">
+                {filteredPositions.map((p) => {
+                  const pnlPos = (p.unrealized_pnl_usd ?? 0) >= 0;
+                  return (
+                    <div key={p.id} className="border border-zinc-800 bg-zinc-950 p-3 text-xs">
+                      <div className="flex items-start justify-between mb-2">
+                        <div>
+                          <div className="text-sm text-zinc-100 font-medium">{p.symbol}</div>
+                          <div className="text-[10px] uppercase text-zinc-500">{p.pool} · {p.side}</div>
+                        </div>
+                        <div className="text-right">
+                          <div className={`text-base font-light tabular-nums ${pnlPos ? "text-emerald-400" : "text-red-400"}`}>
+                            {formatUsd(p.unrealized_pnl_usd ?? 0)}
+                          </div>
+                          <div className={`text-[11px] tabular-nums ${pnlPos ? "text-emerald-400" : "text-red-400"}`}>
+                            {((p.unrealized_pnl_pct ?? 0) * 100).toFixed(2)}%
+                          </div>
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-3 gap-2 text-[11px]">
+                        <KV k="Entry" v={`$${p.entry_price.toFixed(4)}`} />
+                        <KV k="Current" v={`$${(p.current_price ?? p.entry_price).toFixed(4)}`} />
+                        <KV k="Score" v={(p.current_score ?? 0).toFixed(1)} />
+                        <KV k="Stop" v={`$${p.stop_price.toFixed(4)}`} tone="danger" />
+                        <KV k="Target" v={`$${p.target_price.toFixed(4)}`} tone="success" />
+                        <KV k="Size" v={p.size_units.toFixed(4)} />
+                      </div>
+                      <div className="mt-2 pt-2 border-t border-zinc-900 text-[10px] text-zinc-500">
+                        Abierta {new Date(p.opened_at).toLocaleString()}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* DESKTOP: tabla */}
+              <div className="hidden md:block">
             <Table headers={["Symbol", "Pool", "Side", "Size", "Entry", "Current", "Stop", "Target", "PnL $", "PnL %", "Score", "Opened"]}>
               {filteredPositions.map((p) => {
                 const pnlPos = (p.unrealized_pnl_usd ?? 0) >= 0;
@@ -235,6 +274,8 @@ export default function PortfolioPage() {
                 );
               })}
             </Table>
+              </div>
+            </>
           )}
         </section>
 
@@ -244,6 +285,34 @@ export default function PortfolioPage() {
           {filteredTrades.length === 0 ? (
             <div className="border border-zinc-800 bg-zinc-950 p-4 text-xs text-zinc-600">Sin trades cerrados en este pool.</div>
           ) : (
+            <>
+              {/* MOBILE: cards compactas */}
+              <div className="md:hidden space-y-1.5">
+                {filteredTrades.slice(0, 50).map((t) => {
+                  const pnlPos = t.pnl_usd >= 0;
+                  return (
+                    <div key={t.id} className="border border-zinc-800 bg-zinc-950 p-2.5 text-xs">
+                      <div className="flex items-center justify-between mb-1">
+                        <div className="flex items-center gap-2">
+                          <span className="text-zinc-100 font-medium">{t.symbol}</span>
+                          <span className="text-[9px] uppercase text-zinc-500">{t.pool}</span>
+                          <span className={`text-[9px] uppercase px-1 py-0.5 border ${t.exit_reason === "target" ? "border-emerald-700 text-emerald-400" : t.exit_reason === "stop" ? "border-red-700 text-red-400" : "border-zinc-800 text-zinc-500"}`}>{t.exit_reason}</span>
+                        </div>
+                        <div className={`text-sm tabular-nums font-medium ${pnlPos ? "text-emerald-400" : "text-red-400"}`}>
+                          {formatUsd(t.pnl_usd)} <span className="text-[10px]">({(t.pnl_pct * 100).toFixed(2)}%)</span>
+                        </div>
+                      </div>
+                      <div className="flex items-center justify-between text-[10px] text-zinc-500 tabular-nums">
+                        <span>${t.entry_price.toFixed(4)} → ${t.exit_price.toFixed(4)}</span>
+                        <span>{(t.hold_hours ?? 0).toFixed(1)}h · {new Date(t.exit_at).toLocaleDateString()}</span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* DESKTOP: tabla */}
+              <div className="hidden md:block">
             <Table headers={["Symbol", "Pool", "Strategy", "Entry", "Exit", "PnL $", "PnL %", "Reason", "Hold (h)", "Closed"]}>
               {filteredTrades.slice(0, 50).map((t) => {
                 const pnlPos = t.pnl_usd >= 0;
@@ -263,6 +332,8 @@ export default function PortfolioPage() {
                 );
               })}
             </Table>
+              </div>
+            </>
           )}
           {filteredTrades.length > 50 && (
             <div className="mt-2 text-[10px] text-zinc-600">Mostrando 50 de {filteredTrades.length} · ver todos en /history</div>
@@ -309,6 +380,16 @@ function Metric({ label, value, tone = "neutral", sub }: { label: string; value:
       <div className="text-[10px] uppercase tracking-[0.18em] text-zinc-500">{label}</div>
       <div className={`mt-2 text-xl font-light tabular-nums ${color}`}>{value}</div>
       {sub && <div className="text-[10px] text-zinc-600 mt-1">{sub}</div>}
+    </div>
+  );
+}
+
+function KV({ k, v, tone = "neutral" }: { k: string; v: string; tone?: string }) {
+  const color = { neutral: "text-zinc-200", success: "text-emerald-400", warn: "text-amber-400", danger: "text-red-400" }[tone] || "text-zinc-200";
+  return (
+    <div>
+      <div className="text-[9px] uppercase tracking-wider text-zinc-600">{k}</div>
+      <div className={`tabular-nums ${color}`}>{v}</div>
     </div>
   );
 }

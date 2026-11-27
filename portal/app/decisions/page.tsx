@@ -122,7 +122,37 @@ export default function DecisionsPage() {
           {sortedScores.length === 0 ? (
             <div className="border border-zinc-800 bg-zinc-950 p-4 text-xs text-zinc-600">Sin scores todavía.</div>
           ) : (
-            <div className="border border-zinc-800 bg-zinc-950 overflow-x-auto">
+            <>
+            {/* MOBILE: grid de cards compactas */}
+            <div className="md:hidden grid grid-cols-2 gap-2">
+              {sortedScores.map((s) => (
+                <button key={s.symbol} onClick={() => router.push(`/decisions/${encodeURIComponent(s.symbol)}`)}
+                  className="text-left border border-zinc-800 bg-zinc-950 p-2.5">
+                  <div className="flex items-start justify-between mb-1">
+                    <span className="text-xs text-zinc-100 font-medium truncate">{s.symbol}</span>
+                    <span className={`text-lg tabular-nums font-light ${scoreColor(s.score_total)}`}>{s.score_total.toFixed(0)}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className={`text-[9px] uppercase tracking-wider px-1 py-0.5 border ${stateBadge(s.state)}`}>{s.state}</span>
+                    <span className="text-[9px] text-zinc-600">{relativeTime(s.ts)}</span>
+                  </div>
+                  <div className="mt-1.5 grid grid-cols-5 gap-0.5 text-[8px] text-center">
+                    {["T", "F", "S", "R", "Ti"].map((lbl, i) => {
+                      const val = [s.score_technical, s.score_fundamental, s.score_sentiment, s.score_risk, s.score_timing][i];
+                      return (
+                        <div key={lbl} className={`py-0.5 border border-zinc-900 ${componentColor(val)}`}>
+                          <div className="text-[8px] opacity-60">{lbl}</div>
+                          <div className="tabular-nums">{val != null ? val.toFixed(0) : "—"}</div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </button>
+              ))}
+            </div>
+
+            {/* DESKTOP: tabla */}
+            <div className="hidden md:block border border-zinc-800 bg-zinc-950 overflow-x-auto">
               <table className="w-full text-xs">
                 <thead className="border-b border-zinc-800 text-[10px] uppercase tracking-wider text-zinc-500">
                   <tr>
@@ -168,6 +198,7 @@ export default function DecisionsPage() {
                 </tbody>
               </table>
             </div>
+            </>
           )}
         </section>
 
@@ -188,7 +219,39 @@ export default function DecisionsPage() {
           {filtered.length === 0 ? (
             <div className="border border-zinc-800 bg-zinc-950 p-4 text-xs text-zinc-600">Sin decisiones en este filtro.</div>
           ) : (
-            <div className="border border-zinc-800 bg-zinc-950 overflow-x-auto">
+            <>
+            {/* MOBILE: cards */}
+            <div className="md:hidden space-y-1.5">
+              {filtered.map((d) => (
+                <button key={d.id} onClick={() => router.push(`/decisions/${encodeURIComponent(d.symbol)}`)}
+                  className="w-full text-left border border-zinc-800 bg-zinc-950 p-2.5">
+                  <div className="flex items-center justify-between mb-1">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="text-xs text-zinc-100 font-medium truncate">{d.symbol}</span>
+                      <span className="text-[9px] uppercase text-zinc-500">{d.pool || "—"}</span>
+                      <span className={`text-[9px] uppercase px-1 py-0.5 border ${actionBadge(d.action)}`}>{d.action}</span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <span className={`text-[9px] uppercase tracking-wider px-1 py-0.5 border ${statusBadge(d.status)}`}>{d.status}</span>
+                      <span className={`text-xs tabular-nums ${d.score != null ? scoreColor(d.score) : "text-zinc-500"}`}>{d.score != null ? d.score.toFixed(0) : "—"}</span>
+                    </div>
+                  </div>
+                  <div className="text-[10px] text-zinc-500 tabular-nums mb-1">
+                    E ${d.entry_price?.toFixed(4) ?? "—"} · S <span className="text-red-400">${d.stop_price?.toFixed(4) ?? "—"}</span> · T <span className="text-emerald-400">${d.target_price?.toFixed(4) ?? "—"}</span> · {d.notional_usd != null ? formatUsd(d.notional_usd) : "—"}
+                  </div>
+                  {(d.justification || d.rejected_reason) && (
+                    <div className="text-[10px] text-zinc-400 line-clamp-2">
+                      {d.rejected_reason && <span className="text-red-400">✗ {d.rejected_reason} · </span>}
+                      {d.justification}
+                    </div>
+                  )}
+                  <div className="text-[9px] text-zinc-600 mt-1">{new Date(d.created_at).toLocaleString()}</div>
+                </button>
+              ))}
+            </div>
+
+            {/* DESKTOP: tabla */}
+            <div className="hidden md:block border border-zinc-800 bg-zinc-950 overflow-x-auto">
               <table className="w-full text-xs">
                 <thead className="border-b border-zinc-800 text-[10px] uppercase tracking-wider text-zinc-500">
                   <tr>
@@ -235,6 +298,7 @@ export default function DecisionsPage() {
                 </tbody>
               </table>
             </div>
+            </>
           )}
         </section>
 

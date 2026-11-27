@@ -233,7 +233,43 @@ export default function HistoryPage() {
           {filtered.length === 0 ? (
             <div className="border border-zinc-800 bg-zinc-950 p-4 text-xs text-zinc-600">Sin trades en este filtro.</div>
           ) : (
-            <div className="border border-zinc-800 bg-zinc-950 overflow-x-auto">
+            <>
+            {/* MOBILE: lista de cards clickeables (tap para expandir ficha) */}
+            <div className="md:hidden space-y-1.5">
+              {filtered.map((t) => {
+                const isExpanded = expanded === t.id;
+                const isWin = t.pnl_usd >= 0;
+                return (
+                  <div key={t.id} className="border border-zinc-800 bg-zinc-950">
+                    <button onClick={() => {
+                      const willOpen = !isExpanded;
+                      setExpanded(willOpen ? t.id : null);
+                      if (willOpen) loadDecision(t.id, t.symbol, t.entry_at);
+                    }}
+                      className="w-full text-left p-2.5">
+                      <div className="flex items-center justify-between mb-1">
+                        <div className="flex items-center gap-2 text-xs">
+                          <span className="text-zinc-100 font-medium">{t.symbol}</span>
+                          <span className="text-[9px] uppercase text-zinc-500">{t.pool}</span>
+                          <span className={`text-[9px] uppercase px-1 py-0.5 border ${reasonBadge(t.exit_reason)}`}>{t.exit_reason}</span>
+                        </div>
+                        <div className={`text-sm tabular-nums font-medium ${isWin ? "text-emerald-400" : "text-red-400"}`}>
+                          {formatUsd(t.pnl_usd)} <span className="text-[10px]">({(t.pnl_pct * 100).toFixed(2)}%)</span>
+                        </div>
+                      </div>
+                      <div className="flex items-center justify-between text-[10px] text-zinc-500 tabular-nums">
+                        <span>${t.entry_price.toFixed(4)} → ${t.exit_price.toFixed(4)}</span>
+                        <span>{(t.hold_hours ?? 0).toFixed(1)}h · {new Date(t.exit_at).toLocaleDateString()}</span>
+                      </div>
+                    </button>
+                    {isExpanded && <ExpandedMobile trade={t} decision={decisions[t.id]} />}
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* DESKTOP: tabla */}
+            <div className="hidden md:block border border-zinc-800 bg-zinc-950 overflow-x-auto">
               <table className="w-full text-xs">
                 <thead className="border-b border-zinc-800 text-[10px] uppercase tracking-wider text-zinc-500">
                   <tr>
@@ -288,10 +324,64 @@ export default function HistoryPage() {
                 </tbody>
               </table>
             </div>
+            </>
           )}
         </section>
       </div>
     </Shell>
+  );
+}
+
+// Vista expandida compacta para mobile: 3 líneas máximo
+function ExpandedMobile({ trade: t, decision }: { trade: Trade; decision: Decision | undefined }) {
+  const notFound = decision && decision.id === "__none__";
+  const stop = decision?.stop_price ?? null;
+  const target = decision?.target_price ?? null;
+  const notionalEntry = t.size_units * t.entry_price;
+  const commission = t.commission_usd ?? notionalEntry * 0.001;
+
+  return (
+    <div className="border-t border-zinc-900 bg-black/40 p-2.5 text-[11px] space-y-2">
+      {decision && !notFound && stop != null && target != null && (
+        <div>
+          <div className="text-[9px] uppercase tracking-wider text-zinc-600 mb-0.5">Plan</div>
+          <div className="text-zinc-400 tabular-nums">
+            Entry ${decision.entry_price?.toFixed(4)} · Stop <span className="text-red-400">${stop.toFixed(4)}</span> · Target <span className="text-emerald-400">${target.toFixed(4)}</span>
+          </div>
+        </div>
+      )}
+      <div>
+        <div className="text-[9px] uppercase tracking-wider text-zinc-600 mb-0.5">PnL</div>
+        <div className="text-zinc-400">
+          precio <span className={t.pnl_usd >= 0 ? "text-emerald-400" : "text-red-400"}>{formatUsd((t.exit_price - t.entry_price) * t.size_units)}</span>
+          {" "}· comisión <span className="text-red-400">−{formatUsd(Math.abs(commission))}</span>
+          {" "}· neto <span className={`font-medium ${t.pnl_usd >= 0 ? "text-emerald-400" : "text-red-400"}`}>{formatUsd(t.pnl_usd)}</span>
+        </div>
+      </div>
+      {decision && !notFound && decision.justification && (
+        <div>
+          <div className="text-[9px] uppercase tracking-wider text-zinc-600 mb-0.5">Motivo</div>
+          <div className="text-zinc-300 text-[11px] leading-snug">{decision.justification}</div>
+          {decision.risks && decision.risks.length > 0 && (
+            <div className="flex flex-wrap gap-1 mt-1">
+              {decision.risks.map((r, i) => (
+                <span key={i} className="text-[9px] px-1 py-0.5 border border-amber-900 text-amber-300 bg-amber-950/20 uppercase">{r}</span>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+      <div>
+        <div className="text-[9px] uppercase tracking-wider text-zinc-600 mb-0.5">Lectura</div>
+        <div className="text-zinc-400 text-[11px] leading-snug">
+          <ExitInterpretation trade={t} decision={decision && !notFound ? decision : null} />
+        </div>
+      </div>
+      <div className="flex gap-3 pt-1">
+        <Link href={`/decisions/${encodeURIComponent(t.symbol)}`} className="text-[10px] text-lime-400">→ decisiones</Link>
+        <Link href={`/charts?symbol=${encodeURIComponent(t.symbol)}`} className="text-[10px] text-lime-400">→ chart</Link>
+      </div>
+    </div>
   );
 }
 

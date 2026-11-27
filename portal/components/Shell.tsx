@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase";
-import { Activity, Wallet, Brain, Settings as SettingsIcon, Shield, Terminal, LogOut, User, Zap, CandlestickChart, History, Bell, AlertTriangle, AlertOctagon, Info } from "lucide-react";
+import { Activity, Wallet, Brain, Settings as SettingsIcon, Shield, Terminal, LogOut, User, Zap, CandlestickChart, History, Bell, AlertTriangle, AlertOctagon, Info, Menu, X } from "lucide-react";
 
 type View = "overview" | "portfolio" | "decisions" | "charts" | "strategies" | "history" | "config" | "control";
 
@@ -55,6 +55,7 @@ export default function Shell({ current, children }: { current: View; children: 
   const [email, setEmail] = useState<string>("");
   const [menuOpen, setMenuOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [kpis, setKpis] = useState<HeaderKPIs | null>(null);
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const router = useRouter();
@@ -128,20 +129,28 @@ export default function Shell({ current, children }: { current: View; children: 
   return (
     <div className="min-h-screen bg-black text-zinc-200 font-mono">
       <header className="border-b border-zinc-800 bg-zinc-950/90 backdrop-blur sticky top-0 z-40">
-        <div className="px-4 py-2.5 flex items-center justify-between gap-6">
-          <div className="flex items-center gap-3">
-            <div className="w-7 h-7 border border-lime-500 flex items-center justify-center">
-              <Terminal className="w-3.5 h-3.5 text-lime-400" />
+        <div className="px-3 md:px-4 py-2 md:py-2.5 flex items-center justify-between gap-2 md:gap-6">
+          <div className="flex items-center gap-2 md:gap-3 min-w-0">
+            {/* Hamburger (solo mobile) */}
+            <button onClick={() => setMobileNavOpen(!mobileNavOpen)}
+              className="md:hidden border border-zinc-800 p-1.5 text-zinc-400"
+              aria-label="Menú">
+              {mobileNavOpen ? <X className="w-4 h-4" /> : <Menu className="w-4 h-4" />}
+            </button>
+
+            <div className="w-6 h-6 md:w-7 md:h-7 border border-lime-500 flex items-center justify-center flex-shrink-0">
+              <Terminal className="w-3 h-3 md:w-3.5 md:h-3.5 text-lime-400" />
             </div>
-            <div>
-              <div className="text-[15px] text-zinc-100" style={{ fontFamily: "Fraunces, serif" }}>
+            <div className="min-w-0">
+              <div className="text-[13px] md:text-[15px] text-zinc-100 truncate" style={{ fontFamily: "Fraunces, serif" }}>
                 Quant<span className="text-lime-400">.</span>Agent
               </div>
-              <div className="text-[9px] uppercase tracking-[0.2em] text-zinc-600 -mt-1">portfolio · risk · execution</div>
+              <div className="text-[9px] uppercase tracking-[0.2em] text-zinc-600 -mt-1 hidden md:block">portfolio · risk · execution</div>
             </div>
           </div>
-          <div className="flex items-center gap-3 text-[11px]">
-            {/* Reloj + fecha — también en el header para pantallas angostas */}
+
+          <div className="flex items-center gap-2 md:gap-3 text-[11px] flex-shrink-0">
+            {/* Reloj + fecha — desde sm (oculto en mobile muy chico) */}
             <div className="hidden sm:flex flex-col items-end leading-tight text-[10px] text-zinc-500 tabular-nums">
               <span className="text-zinc-400">
                 {now.toLocaleDateString("es-AR", { weekday: "short", day: "2-digit", month: "short" })}
@@ -151,7 +160,19 @@ export default function Shell({ current, children }: { current: View; children: 
               </span>
             </div>
 
-            {/* KPIs permanentes — compactos, sin separadores */}
+            {/* KPI compacto en mobile: solo equity + gain + dot */}
+            {kpis && (
+              <div className="flex md:hidden items-center gap-1.5 border border-zinc-800 bg-zinc-950 px-2 py-1"
+                title={`Equity ${kpis.current_equity?.toFixed(2)} · Gain ${kpis.total_gain?.toFixed(2)}`}>
+                <span className="text-[10px] text-lime-400 tabular-nums">${kpis.current_equity?.toFixed(0) ?? "—"}</span>
+                <span className={`text-[10px] tabular-nums ${(kpis.total_gain ?? 0) > 0 ? "text-emerald-400" : (kpis.total_gain ?? 0) < 0 ? "text-red-400" : "text-zinc-400"}`}>
+                  {kpis.total_gain != null ? `${kpis.total_gain >= 0 ? "+" : ""}$${kpis.total_gain.toFixed(2)}` : "—"}
+                </span>
+                <span className={`w-1.5 h-1.5 rounded-full ${kpis.engine_status === "healthy" ? "bg-lime-400 animate-pulse" : "bg-amber-500"}`} />
+              </div>
+            )}
+
+            {/* KPIs permanentes — completos solo en desktop */}
             {kpis && (
               <div className="hidden md:flex items-center gap-4 border border-zinc-800 bg-zinc-950 px-3 py-1"
                 title={`Engine: ${kpis.engine_status ?? "unknown"} · dev mode · paper broker`}>
@@ -195,7 +216,7 @@ export default function Shell({ current, children }: { current: View; children: 
               {notifOpen && (
                 <>
                   <div className="fixed inset-0 z-40" onClick={() => setNotifOpen(false)} />
-                  <div className="absolute right-0 top-full mt-1 bg-zinc-950 border border-zinc-800 w-[380px] max-h-[520px] overflow-hidden flex flex-col z-50 shadow-2xl">
+                  <div className="absolute right-0 top-full mt-1 bg-zinc-950 border border-zinc-800 w-[calc(100vw-1.5rem)] md:w-[380px] max-w-[380px] max-h-[520px] overflow-hidden flex flex-col z-50 shadow-2xl">
                     <div className="px-3 py-2 border-b border-zinc-900 flex items-center justify-between">
                       <div className="flex items-center gap-2">
                         <Bell className="w-3 h-3 text-zinc-500" />
@@ -226,10 +247,10 @@ export default function Shell({ current, children }: { current: View; children: 
               )}
             </div>
 
-            {/* CTA Configuración (solo ícono) */}
+            {/* CTA Configuración (solo ícono) — oculto en mobile, está en el drawer */}
             <Link href="/config"
               title="Configuración del sistema"
-              className={`flex items-center justify-center border p-1.5 transition-colors ${
+              className={`hidden md:flex items-center justify-center border p-1.5 transition-colors ${
                 current === "config"
                   ? "border-lime-500 text-lime-400 bg-lime-950/30"
                   : "border-zinc-800 text-zinc-400 hover:text-zinc-200 hover:border-zinc-600"
@@ -237,8 +258,8 @@ export default function Shell({ current, children }: { current: View; children: 
               <SettingsIcon className="w-3.5 h-3.5" />
             </Link>
 
-            {/* User menu */}
-            <div className="relative">
+            {/* User menu — oculto en mobile, logout está en el drawer */}
+            <div className="relative hidden md:block">
               <button onClick={() => setMenuOpen(!menuOpen)}
                 className="flex items-center gap-2 border border-zinc-800 hover:border-zinc-600 px-2 py-1 text-zinc-400 hover:text-zinc-200">
                 <User className="w-3 h-3" />
@@ -262,7 +283,8 @@ export default function Shell({ current, children }: { current: View; children: 
             </div>
           </div>
         </div>
-        <nav className="border-t border-zinc-900 px-4 flex">
+        {/* NAV desktop: tabs horizontales */}
+        <nav className="hidden md:flex border-t border-zinc-900 px-4">
           {NAV.map((v) => (
             <Link key={v.id} href={v.href}
               className={`flex items-center gap-2 px-4 py-2.5 text-[11px] uppercase tracking-[0.15em] border-r border-zinc-900 transition-colors ${current === v.id ? "text-lime-400 bg-zinc-950" : "text-zinc-500 hover:text-zinc-200"}`}>
@@ -275,22 +297,53 @@ export default function Shell({ current, children }: { current: View; children: 
             <span className="text-zinc-700">UTC</span>
           </div>
         </nav>
+
+        {/* NAV mobile: drawer que aparece debajo del header */}
+        {mobileNavOpen && (
+          <>
+            <div className="fixed inset-0 bg-black/60 z-30 md:hidden" onClick={() => setMobileNavOpen(false)} />
+            <nav className="md:hidden border-t border-zinc-900 bg-zinc-950 relative z-40">
+              {NAV.map((v) => (
+                <Link key={v.id} href={v.href} onClick={() => setMobileNavOpen(false)}
+                  className={`flex items-center gap-3 px-4 py-3 text-xs uppercase tracking-wider border-b border-zinc-900 transition-colors ${current === v.id ? "text-lime-400 bg-lime-950/20" : "text-zinc-400"}`}>
+                  <v.icon className="w-4 h-4" />
+                  {v.label}
+                </Link>
+              ))}
+              {/* Config como opción extra en el drawer mobile */}
+              <Link href="/config" onClick={() => setMobileNavOpen(false)}
+                className={`flex items-center gap-3 px-4 py-3 text-xs uppercase tracking-wider border-b border-zinc-900 ${current === "config" ? "text-lime-400 bg-lime-950/20" : "text-zinc-400"}`}>
+                <SettingsIcon className="w-4 h-4" /> Configuración
+              </Link>
+              {/* Logout en el drawer */}
+              <button onClick={() => { handleLogout(); setMobileNavOpen(false); }}
+                className="w-full flex items-center gap-3 px-4 py-3 text-xs uppercase tracking-wider text-zinc-400 hover:text-red-300 border-b border-zinc-900">
+                <LogOut className="w-4 h-4" /> Cerrar sesión
+              </button>
+              <div className="px-4 py-2 text-[10px] text-zinc-600 flex items-center justify-between">
+                <span className="truncate">{email}</span>
+                <span className="tabular-nums ml-2">{now.toISOString().slice(11, 19)} UTC</span>
+              </div>
+            </nav>
+          </>
+        )}
       </header>
 
-      <div className="px-4 pt-6 pb-4">
+      <div className="px-4 pt-4 md:pt-6 pb-3 md:pb-4">
         <div className="text-[10px] uppercase tracking-[0.25em] text-zinc-600">// {current}.view</div>
-        <div className="flex items-baseline gap-3 mt-1">
-          <h1 className="text-3xl text-zinc-100" style={{ fontFamily: "Fraunces, serif", fontWeight: 300 }}>{currentMeta.label}</h1>
+        <div className="flex items-baseline gap-3 mt-1 flex-wrap">
+          <h1 className="text-2xl md:text-3xl text-zinc-100" style={{ fontFamily: "Fraunces, serif", fontWeight: 300 }}>{currentMeta.label}</h1>
           <span className="text-[10px] text-zinc-600 font-mono" title={`Build time: ${process.env.NEXT_PUBLIC_BUILD_TIME}`}>
             build {process.env.NEXT_PUBLIC_COMMIT_SHA || "dev"}
           </span>
         </div>
       </div>
 
-      <main className="px-4 pb-12">{children}</main>
+      <main className="px-3 md:px-4 pb-12">{children}</main>
 
       <footer className="border-t border-zinc-900 px-4 py-3 text-[10px] text-zinc-600 flex items-center justify-between">
-        <span>quant.agent · disciplined quantitative system</span>
+        <span className="hidden sm:inline">quant.agent · disciplined quantitative system</span>
+        <span className="sm:hidden">quant.agent</span>
         <span>v0.1.0</span>
       </footer>
     </div>
