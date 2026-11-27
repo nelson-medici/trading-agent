@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase";
 import { useRouter } from "next/navigation";
 import Shell from "@/components/Shell";
 import { formatUsd } from "@/lib/utils";
+import Link from "next/link";
 import { Shield, AlertCircle, Activity, DollarSign } from "lucide-react";
 
 interface KillSwitch {
@@ -124,13 +125,6 @@ export default function ControlPage() {
     setTimeout(() => setMsg(""), 5000);
   }
 
-  async function ackAlert(id: string) {
-    await supabase.from("alerts")
-      .update({ acknowledged: true, acknowledged_at: new Date().toISOString() })
-      .eq("id", id);
-    await load();
-  }
-
   const heartbeatAge = heartbeat
     ? Math.floor((Date.now() - new Date(heartbeat.reported_at).getTime()) / 1000)
     : null;
@@ -183,18 +177,18 @@ export default function ControlPage() {
             </div>
           </div>
 
-          <div className="border border-zinc-800 bg-zinc-950 p-4">
+          <Link href="/alerts" className="border border-zinc-800 hover:border-violet-800 bg-zinc-950 p-4 block transition-colors">
             <div className="flex items-start justify-between">
               <div>
                 <div className="text-[10px] uppercase tracking-wider text-zinc-500 mb-1">Alertas sin leer</div>
-                <div className={`text-xl ${alerts.filter(a => !a.acknowledged && (a.level === "warn" || a.level === "critical")).length > 0 ? "text-amber-400" : "text-zinc-100"}`}>
-                  {alerts.filter(a => !a.acknowledged && (a.level === "warn" || a.level === "critical")).length}
+                <div className={`text-xl ${alerts.filter(a => !a.acknowledged).length > 0 ? "text-violet-300" : "text-zinc-100"}`}>
+                  {alerts.filter(a => !a.acknowledged).length}
                 </div>
-                <div className="text-[11px] text-zinc-400 mt-1">de {alerts.length} totales</div>
+                <div className="text-[11px] text-violet-400/80 mt-1">ver módulo de alertas →</div>
               </div>
-              <AlertCircle className="w-5 h-5 text-zinc-500" />
+              <AlertCircle className="w-5 h-5 text-violet-400/70" />
             </div>
-          </div>
+          </Link>
         </div>
 
         {/* Aporte de capital */}
@@ -254,43 +248,6 @@ export default function ControlPage() {
           )}
         </section>
 
-        {/* Alertas */}
-        <section>
-          <h2 className="text-[11px] uppercase tracking-[0.2em] text-zinc-500 mb-2">// Alertas ({alerts.length})</h2>
-          {alerts.length === 0 ? (
-            <div className="border border-zinc-800 bg-zinc-950 p-4 text-xs text-zinc-600">Sin alertas.</div>
-          ) : (
-            <div className="space-y-2">
-              {alerts.map((a) => {
-                const color = {
-                  critical: "border-red-800 bg-red-950/20 text-red-300",
-                  warn: "border-amber-800 bg-amber-950/20 text-amber-300",
-                  info: "border-zinc-800 bg-zinc-950 text-zinc-300",
-                }[a.level] || "border-zinc-800 bg-zinc-950";
-                return (
-                  <div key={a.id} className={`border p-3 ${color} ${a.acknowledged ? "opacity-50" : ""}`}>
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="flex-1">
-                        <div className="text-xs">
-                          <span className="uppercase tracking-wider text-[10px] mr-2">[{a.level}]</span>
-                          <span className="font-medium">{a.title}</span>
-                        </div>
-                        {a.message && <div className="text-[11px] mt-1 text-zinc-400">{a.message}</div>}
-                        <div className="text-[10px] text-zinc-600 mt-1">{new Date(a.created_at).toLocaleString()} · {a.category}</div>
-                      </div>
-                      {!a.acknowledged && (
-                        <button onClick={() => ackAlert(a.id)}
-                          className="text-[10px] uppercase tracking-wider border border-zinc-700 px-2 py-1 hover:border-zinc-500">
-                          ack
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </section>
       </div>
     </Shell>
   );

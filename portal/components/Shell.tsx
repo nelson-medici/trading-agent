@@ -5,9 +5,10 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase";
 import { Activity, Wallet, Brain, Settings as SettingsIcon, Shield, Terminal, LogOut, User, Zap, CandlestickChart, History, Bell, Timer, AlertTriangle, AlertOctagon, Info, Menu, X } from "lucide-react";
 
-type View = "overview" | "portfolio" | "decisions" | "charts" | "strategies" | "scalper" | "history" | "config" | "control";
+type View = "overview" | "portfolio" | "decisions" | "charts" | "strategies" | "scalper" | "history" | "alerts" | "config" | "control";
 
-// Configuración ya NO está en la nav principal — es un CTA en el header
+// Configuración y Control no están en la nav: Config es un CTA del header,
+// Control vive en el menú de usuario (operación sensible, no navegación diaria)
 const NAV: { id: View; label: string; icon: any; href: string }[] = [
   { id: "overview", label: "Overview", icon: Activity, href: "/" },
   { id: "portfolio", label: "Portafolio", icon: Wallet, href: "/portfolio" },
@@ -16,7 +17,7 @@ const NAV: { id: View; label: string; icon: any; href: string }[] = [
   { id: "strategies", label: "Strategies", icon: Zap, href: "/strategies" },
   { id: "scalper", label: "Scalper", icon: Timer, href: "/scalper" },
   { id: "history", label: "Histórico", icon: History, href: "/history" },
-  { id: "control", label: "Control", icon: Shield, href: "/control" },
+  { id: "alerts", label: "Alertas", icon: Bell, href: "/alerts" },
 ];
 
 const VIEW_META: Record<View, { label: string }> = {
@@ -27,6 +28,7 @@ const VIEW_META: Record<View, { label: string }> = {
   strategies: { label: "Strategies" },
   scalper: { label: "Scalper manual" },
   history: { label: "Histórico de trades" },
+  alerts: { label: "Alertas" },
   config: { label: "Configuración" },
   control: { label: "Control" },
 };
@@ -156,6 +158,7 @@ export default function Shell({ current, children }: { current: View; children: 
           </div>
 
           <div className="flex items-center gap-2 md:gap-3 text-[11px] flex-shrink-0">
+            {/* orden visual en desktop: KPIs · usuario (order-1) · campana (order-2) · config (order-3) */}
 
             {/* KPI compacto en mobile: solo equity + gain (sin dot acá; va al lado del reloj) */}
             {kpis && (
@@ -189,25 +192,19 @@ export default function Shell({ current, children }: { current: View; children: 
               </div>
             )}
 
-            {/* Campanita de notificaciones */}
-            <div className="relative">
+            {/* Campanita de notificaciones (a la derecha del usuario) */}
+            <div className="relative order-2">
               <button onClick={() => setNotifOpen(!notifOpen)}
                 title={unreadCount > 0 ? `${unreadCount} alerta${unreadCount === 1 ? "" : "s"} sin leer` : "Sin alertas nuevas"}
                 className={`relative flex items-center justify-center border p-1.5 transition-colors ${
                   unreadCount > 0
-                    ? highestSeverity === "critical"
-                      ? "border-red-500 text-red-400 bg-red-950/30 animate-pulse"
-                      : highestSeverity === "warn"
-                        ? "border-amber-500 text-amber-400 bg-amber-950/30"
-                        : "border-lime-700 text-lime-400 bg-lime-950/20"
-                    : "border-zinc-800 text-zinc-400 hover:text-zinc-200 hover:border-zinc-600"
+                    ? "border-violet-500 text-violet-300 bg-violet-950/30"
+                    : "border-zinc-800 text-violet-400/70 hover:text-violet-300 hover:border-violet-800"
                 }`}>
                 <Bell className="w-3.5 h-3.5" />
                 {unreadCount > 0 && (
-                  <span className={`absolute -top-1.5 -right-1.5 min-w-[16px] h-4 px-1 text-[9px] font-medium tabular-nums flex items-center justify-center rounded-full border ${
-                    highestSeverity === "critical" ? "bg-red-500 text-black border-red-700"
-                      : highestSeverity === "warn" ? "bg-amber-500 text-black border-amber-700"
-                      : "bg-lime-500 text-black border-lime-700"
+                  <span className={`absolute -top-1.5 -right-1.5 min-w-[16px] h-4 px-1 text-[9px] font-medium tabular-nums flex items-center justify-center rounded-full bg-violet-500 text-white border border-violet-300 ${
+                    highestSeverity === "critical" ? "animate-pulse" : ""
                   }`}>{unreadCount > 99 ? "99+" : unreadCount}</span>
                 )}
               </button>
@@ -218,12 +215,12 @@ export default function Shell({ current, children }: { current: View; children: 
                   <div className="absolute right-0 top-full mt-1 bg-zinc-950 border border-zinc-800 w-[calc(100vw-1.5rem)] md:w-[380px] max-w-[380px] max-h-[520px] overflow-hidden flex flex-col z-50 shadow-2xl">
                     <div className="px-3 py-2 border-b border-zinc-900 flex items-center justify-between">
                       <div className="flex items-center gap-2">
-                        <Bell className="w-3 h-3 text-zinc-500" />
+                        <Bell className="w-3 h-3 text-violet-400" />
                         <span className="text-[11px] uppercase tracking-wider text-zinc-400">Alertas</span>
                         {unreadCount > 0 && <span className="text-[10px] text-zinc-600">({unreadCount} sin leer)</span>}
                       </div>
                       {unreadCount > 0 && (
-                        <button onClick={ackAll} className="text-[10px] uppercase tracking-wider text-zinc-500 hover:text-lime-400">
+                        <button onClick={ackAll} className="text-[10px] uppercase tracking-wider text-zinc-500 hover:text-violet-300">
                           Marcar todas
                         </button>
                       )}
@@ -236,8 +233,8 @@ export default function Shell({ current, children }: { current: View; children: 
                       )}
                     </div>
                     <div className="px-3 py-2 border-t border-zinc-900 flex items-center justify-between text-[10px]">
-                      <Link href="/control" onClick={() => setNotifOpen(false)} className="text-lime-400 hover:underline">
-                        Ver todas en Control →
+                      <Link href="/alerts" onClick={() => setNotifOpen(false)} className="text-violet-300 hover:underline">
+                        Ver todas las alertas →
                       </Link>
                       <span className="text-zinc-600">refresh cada 15s</span>
                     </div>
@@ -247,9 +244,9 @@ export default function Shell({ current, children }: { current: View; children: 
             </div>
 
             {/* CTA Configuración (solo ícono) — oculto en mobile, está en el drawer */}
-            <Link href="/config"
+            <Link href="/config" prefetch={false}
               title="Configuración del sistema"
-              className={`hidden md:flex items-center justify-center border p-1.5 transition-colors ${
+              className={`hidden md:flex order-3 items-center justify-center border p-1.5 transition-colors ${
                 current === "config"
                   ? "border-lime-500 text-lime-400 bg-lime-950/30"
                   : "border-zinc-800 text-zinc-400 hover:text-zinc-200 hover:border-zinc-600"
@@ -258,7 +255,7 @@ export default function Shell({ current, children }: { current: View; children: 
             </Link>
 
             {/* User menu — oculto en mobile, logout está en el drawer */}
-            <div className="relative hidden md:block">
+            <div className="relative hidden md:block order-1">
               <button onClick={() => setMenuOpen(!menuOpen)}
                 className="flex items-center gap-2 border border-zinc-800 hover:border-zinc-600 px-2 py-1 text-zinc-400 hover:text-zinc-200">
                 <User className="w-3 h-3" />
@@ -271,6 +268,16 @@ export default function Shell({ current, children }: { current: View; children: 
                     <div className="px-3 py-2 text-[10px] text-zinc-500 border-b border-zinc-900">
                       <div className="truncate">{email}</div>
                     </div>
+                    <Link href="/control" onClick={() => setMenuOpen(false)}
+                      className={`px-3 py-2 text-xs flex items-center gap-2 border-b border-zinc-900 ${current === "control" ? "text-lime-400 bg-lime-950/20" : "text-zinc-300 hover:bg-zinc-900"}`}>
+                      <Shield className="w-3 h-3" />
+                      Control
+                    </Link>
+                    <Link href="/config" onClick={() => setMenuOpen(false)}
+                      className={`px-3 py-2 text-xs flex items-center gap-2 border-b border-zinc-900 ${current === "config" ? "text-lime-400 bg-lime-950/20" : "text-zinc-300 hover:bg-zinc-900"}`}>
+                      <SettingsIcon className="w-3 h-3" />
+                      Configuración
+                    </Link>
                     <button onClick={handleLogout}
                       className="w-full text-left px-3 py-2 text-xs text-zinc-300 hover:bg-red-950/30 hover:text-red-300 flex items-center gap-2">
                       <LogOut className="w-3 h-3" />
@@ -316,6 +323,10 @@ export default function Shell({ current, children }: { current: View; children: 
                 </Link>
               ))}
               {/* Config como opción extra en el drawer mobile */}
+              <Link href="/control" onClick={() => setMobileNavOpen(false)}
+                className={`flex items-center gap-3 px-4 py-3 text-xs uppercase tracking-wider border-b border-zinc-900 ${current === "control" ? "text-lime-400 bg-lime-950/20" : "text-zinc-400"}`}>
+                <Shield className="w-4 h-4" /> Control
+              </Link>
               <Link href="/config" onClick={() => setMobileNavOpen(false)}
                 className={`flex items-center gap-3 px-4 py-3 text-xs uppercase tracking-wider border-b border-zinc-900 ${current === "config" ? "text-lime-400 bg-lime-950/20" : "text-zinc-400"}`}>
                 <SettingsIcon className="w-4 h-4" /> Configuración
@@ -377,8 +388,9 @@ function AlertRow({ alert, onAck }: { alert: Alert; onAck: () => void }) {
   const relTime = diffMin < 1 ? "ahora" : diffMin < 60 ? `${diffMin}m` : diffMin < 1440 ? `${Math.floor(diffMin / 60)}h` : `${Math.floor(diffMin / 1440)}d`;
 
   return (
-    <div className={`px-3 py-2 border-b border-zinc-900 border-l-2 ${severityColor} ${alert.acknowledged ? "opacity-50" : ""}`}>
-      <div className="flex items-start gap-2">
+    <div className={`relative px-3 py-2 border-b border-zinc-900 border-l-2 ${severityColor} ${alert.acknowledged ? "opacity-50" : "bg-violet-950/10"}`}>
+      {!alert.acknowledged && <span className="absolute left-1 top-3 w-1.5 h-1.5 rounded-full bg-violet-400" title="sin leer" />}
+      <div className="flex items-start gap-2 pl-2">
         <div className="pt-0.5">{severityIcon}</div>
         <div className="flex-1 min-w-0">
           <div className="flex items-baseline justify-between gap-2">
@@ -396,7 +408,7 @@ function AlertRow({ alert, onAck }: { alert: Alert; onAck: () => void }) {
               <Link href={alert.href} className="text-[9px] uppercase tracking-wider text-lime-400 hover:underline">abrir →</Link>
             )}
             {!alert.acknowledged && (
-              <button onClick={onAck} className="ml-auto text-[9px] uppercase tracking-wider text-zinc-500 hover:text-lime-400">ack</button>
+              <button onClick={onAck} className="ml-auto text-[9px] uppercase tracking-wider text-violet-400/80 hover:text-violet-300">marcar leída</button>
             )}
           </div>
         </div>
