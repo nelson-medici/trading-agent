@@ -151,32 +151,39 @@ export default function Shell({ current, children }: { current: View; children: 
           </div>
 
           <div className="flex items-center gap-2 md:gap-3 text-[11px] flex-shrink-0">
-            {/* Reloj + fecha — desde sm (oculto en mobile muy chico) */}
+            {/* Reloj + fecha (hora local) + dot a la derecha */}
             <div className="hidden sm:flex flex-col items-end leading-tight text-[10px] text-zinc-500 tabular-nums">
               <span className="text-zinc-400">
                 {now.toLocaleDateString("es-AR", { weekday: "short", day: "2-digit", month: "short" })}
               </span>
-              <span>
-                {now.toISOString().slice(11, 19)} <span className="text-zinc-700">UTC</span>
-              </span>
+              <div className="flex items-center gap-1.5">
+                <span>
+                  {now.toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false })}
+                </span>
+                {kpis && <EngineDot status={kpis.engine_status} title={engineStatusTitle(kpis)} />}
+              </div>
             </div>
 
-            {/* KPI compacto en mobile: solo equity + gain + dot */}
+            {/* KPI compacto en mobile: solo equity + gain (sin dot acá; va al lado del reloj) */}
             {kpis && (
-              <div className="flex md:hidden items-center gap-1.5 border border-zinc-800 bg-zinc-950 px-2 py-1"
-                title={engineStatusTitle(kpis)}>
+              <div className="flex md:hidden items-center gap-1.5 border border-zinc-800 bg-zinc-950 px-2 py-1">
                 <span className="text-[10px] text-lime-400 tabular-nums">${kpis.current_equity?.toFixed(0) ?? "—"}</span>
                 <span className={`text-[10px] tabular-nums ${(kpis.total_gain ?? 0) > 0 ? "text-emerald-400" : (kpis.total_gain ?? 0) < 0 ? "text-red-400" : "text-zinc-400"}`}>
                   {kpis.total_gain != null ? `${kpis.total_gain >= 0 ? "+" : ""}$${kpis.total_gain.toFixed(2)}` : "—"}
                 </span>
+              </div>
+            )}
+
+            {/* En mobile muy chico (<sm), si no hay reloj visible, el dot se muestra al lado del KPI */}
+            {kpis && (
+              <div className="sm:hidden" title={engineStatusTitle(kpis)}>
                 <EngineDot status={kpis.engine_status} />
               </div>
             )}
 
-            {/* KPIs permanentes — completos solo en desktop */}
+            {/* KPIs permanentes — completos solo en desktop (ya no incluyen el dot) */}
             {kpis && (
-              <div className="hidden md:flex items-center gap-4 border border-zinc-800 bg-zinc-950 px-3 py-1"
-                title={engineStatusTitle(kpis)}>
+              <div className="hidden md:flex items-center gap-4 border border-zinc-800 bg-zinc-950 px-3 py-1">
                 <KpiItem label="Equity" value={kpis.current_equity != null ? `$${kpis.current_equity.toFixed(2)}` : "—"} tone="accent" />
                 <KpiItem label="Inv" value={kpis.total_invested != null ? `$${kpis.total_invested.toFixed(0)}` : "—"} />
                 <KpiItem
@@ -186,7 +193,6 @@ export default function Shell({ current, children }: { current: View; children: 
                   tone={(kpis.total_gain ?? 0) > 0 ? "success" : (kpis.total_gain ?? 0) < 0 ? "danger" : "neutral"}
                 />
                 <KpiItem label="Pos" value={kpis.open_positions ?? 0} />
-                <EngineDot status={kpis.engine_status} />
               </div>
             )}
 
@@ -293,8 +299,10 @@ export default function Shell({ current, children }: { current: View; children: 
             </Link>
           ))}
           <div className="ml-auto hidden lg:flex items-center gap-2 text-[10px] text-zinc-500 pr-2">
-            <span className="tabular-nums">{now.toISOString().slice(11, 19)}</span>
-            <span className="text-zinc-700">UTC</span>
+            <span className="tabular-nums">
+              {now.toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false })}
+            </span>
+            {kpis && <EngineDot status={kpis.engine_status} title={engineStatusTitle(kpis)} />}
           </div>
         </nav>
 
@@ -322,7 +330,10 @@ export default function Shell({ current, children }: { current: View; children: 
               </button>
               <div className="px-4 py-2 text-[10px] text-zinc-600 flex items-center justify-between">
                 <span className="truncate">{email}</span>
-                <span className="tabular-nums ml-2">{now.toISOString().slice(11, 19)} UTC</span>
+                <span className="tabular-nums ml-2 flex items-center gap-1.5">
+                  {now.toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false })}
+                  {kpis && <EngineDot status={kpis.engine_status} title={engineStatusTitle(kpis)} />}
+                </span>
               </div>
             </nav>
           </>
@@ -395,7 +406,7 @@ function AlertRow({ alert, onAck }: { alert: Alert; onAck: () => void }) {
   );
 }
 
-function EngineDot({ status }: { status: string | null }) {
+function EngineDot({ status, title }: { status: string | null; title?: string }) {
   // healthy = verde pulsando · stale = amber · down = rojo pulsando · unknown = gris
   const map: Record<string, string> = {
     healthy: "bg-lime-400 animate-pulse",
@@ -403,7 +414,7 @@ function EngineDot({ status }: { status: string | null }) {
     down: "bg-red-500 animate-pulse",
   };
   const cls = map[status ?? "unknown"] || "bg-zinc-600";
-  return <span className={`w-1.5 h-1.5 rounded-full ${cls}`} />;
+  return <span className={`w-1.5 h-1.5 rounded-full ${cls}`} title={title} />;
 }
 
 function engineStatusTitle(k: HeaderKPIs): string {
