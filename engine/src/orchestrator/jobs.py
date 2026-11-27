@@ -778,11 +778,13 @@ async def evaluate_strategies() -> None:
 
             for symbol in universe:
                 try:
+                    # Las estrategias con EMA200 necesitan >=210 velas; pedimos 500
+                    # para tener margen y matchear el límite de ingestión.
                     rows = await db.select(
                         "ohlcv",
                         filters={"symbol": symbol, "timeframe": timeframe},
                         order_by="-ts",
-                        limit=200,
+                        limit=500,
                     )
                     if len(rows) < 50:
                         continue
