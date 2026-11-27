@@ -3,9 +3,9 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase";
-import { Activity, Wallet, Brain, Settings as SettingsIcon, Shield, Terminal, LogOut, User, Zap, CandlestickChart } from "lucide-react";
+import { Activity, Wallet, Brain, Settings as SettingsIcon, Shield, Terminal, LogOut, User, Zap, CandlestickChart, History } from "lucide-react";
 
-type View = "overview" | "portfolio" | "decisions" | "charts" | "strategies" | "config" | "control";
+type View = "overview" | "portfolio" | "decisions" | "charts" | "strategies" | "history" | "config" | "control";
 
 // Configuración ya NO está en la nav principal — es un CTA en el header
 const NAV: { id: View; label: string; icon: any; href: string }[] = [
@@ -14,6 +14,7 @@ const NAV: { id: View; label: string; icon: any; href: string }[] = [
   { id: "decisions", label: "Decisiones", icon: Brain, href: "/decisions" },
   { id: "charts", label: "Charts", icon: CandlestickChart, href: "/charts" },
   { id: "strategies", label: "Strategies", icon: Zap, href: "/strategies" },
+  { id: "history", label: "Histórico", icon: History, href: "/history" },
   { id: "control", label: "Control", icon: Shield, href: "/control" },
 ];
 
@@ -23,6 +24,7 @@ const VIEW_META: Record<View, { label: string }> = {
   decisions: { label: "Decisiones" },
   charts: { label: "Charts" },
   strategies: { label: "Strategies" },
+  history: { label: "Histórico de trades" },
   config: { label: "Configuración" },
   control: { label: "Control" },
 };
@@ -91,6 +93,16 @@ export default function Shell({ current, children }: { current: View; children: 
             </div>
           </div>
           <div className="flex items-center gap-3 text-[11px]">
+            {/* Reloj + fecha — también en el header para pantallas angostas */}
+            <div className="hidden sm:flex flex-col items-end leading-tight text-[10px] text-zinc-500 tabular-nums">
+              <span className="text-zinc-400">
+                {now.toLocaleDateString("es-AR", { weekday: "short", day: "2-digit", month: "short" })}
+              </span>
+              <span>
+                {now.toISOString().slice(11, 19)} <span className="text-zinc-700">UTC</span>
+              </span>
+            </div>
+
             {/* KPIs permanentes — compactos, sin separadores */}
             {kpis && (
               <div className="hidden md:flex items-center gap-4 border border-zinc-800 bg-zinc-950 px-3 py-1"
