@@ -109,16 +109,15 @@ export default function Shell({ current, children }: { current: View; children: 
               </div>
             )}
 
-            {/* CTA Configuración */}
+            {/* CTA Configuración (solo ícono) */}
             <Link href="/config"
               title="Configuración del sistema"
-              className={`flex items-center gap-1.5 border px-2 py-1 transition-colors ${
+              className={`flex items-center justify-center border p-1.5 transition-colors ${
                 current === "config"
                   ? "border-lime-500 text-lime-400 bg-lime-950/30"
                   : "border-zinc-800 text-zinc-400 hover:text-zinc-200 hover:border-zinc-600"
               }`}>
-              <SettingsIcon className="w-3 h-3" />
-              <span className="hidden md:inline">Config</span>
+              <SettingsIcon className="w-3.5 h-3.5" />
             </Link>
 
             {/* User menu */}
