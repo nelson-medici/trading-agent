@@ -62,6 +62,14 @@ class SupabaseStore:
     async def insert_opportunity(self, row: dict) -> None:
         await self.db.insert("scalper_opportunities", row)
 
+    async def insert_session(self, row: dict) -> None:
+        await self.db.insert("scalper_sessions", row)
+
+    async def sessions_since(self, since: datetime) -> list[dict]:
+        r = (self.c.table("scalper_sessions").select("id,auto,status,realized_pnl_usd,ended_at,requested_at")
+             .gte("requested_at", since.isoformat()).execute())
+        return r.data or []
+
 
 class BinanceMarket:
     """Velas 1m y cotización en vivo. Reutiliza una sola conexión CCXT."""

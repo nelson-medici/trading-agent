@@ -52,6 +52,7 @@ class FakeStore:
         self.session, self.cfg, self.cash = session, cfg or {}, cash
         self.trades, self.ledger, self.alerts, self.scan_rows, self.opps = [], [], [], {}, []
         self.kill = False
+        self.history = []
 
     async def live_session(self):
         s = self.session
@@ -76,6 +77,12 @@ class FakeStore:
         xs = [o["at"] for o in self.opps if o["symbol"] == symbol]
         return max(xs) if xs else None
     async def insert_opportunity(self, row): self.opps.append({**row, "at": self._now})
+    async def insert_session(self, row):
+        if self.session and self.session["status"] in ("requested", "active"):
+            raise RuntimeError("duplicate live session")
+        self.session = new_session(**row)
+        self.history.append(self.session)
+    async def sessions_since(self, since): return list(self.history)
 
 
 def new_session(**kw):
@@ -266,3 +273,60 @@ def test_detector_alerts_once_with_cooldown_and_mutes_during_session():
     store.opps.clear()
     store.session = new_session(status="active")
     assert run(scan(store, FakeMarket(df, 1, 1), T0 + timedelta(minutes=20))) == []   # sesión viva
+
+
+def _hot():
+    df = with_breakout(candles(n=400, drift=0.0004, noise=0.0015, seed=5))
+    df.loc[len(df) - 62:, "volume"] *= 3
+    return df, scalp_score(df)[0]
+
+
+def _auto_store(score, **auto):
+    store = FakeStore(cfg={"watchlist": ["SOL/USDT"], "alert_threshold": min(75, score - 1),
+                           "auto_start": {"enabled": True, **auto}})
+    store._now = T0
+    return store
+
+
+def test_auto_start_launches_session_then_runs_it():
+    df, score = _hot()
+    store = _auto_store(score)
+    run(scan(store, FakeMarket(df, 1, 1), T0))
+    s = store.session
+    assert s["status"] == "requested" and s["auto"] is True and s["symbol"] == "SOL/USDT"
+    px = float(df["close"].iloc[-1])
+    run(tick(store, FakeMarket(df, px * 0.9999, px * 1.0001), T0 + timedelta(seconds=15)))
+    assert store.session["status"] == "active"
+    assert "AUTO" in [a for a in store.alerts if a[1] == "scalper"][0][2]
+    # con sesión viva el detector no lanza otra
+    run(scan(store, FakeMarket(df, 1, 1), T0 + timedelta(minutes=3)))
+    assert len(store.history) == 1
+
+
+def test_auto_start_disabled_or_kill_switch_does_nothing():
+    df, score = _hot()
+    store = _auto_store(score, enabled=False)
+    run(scan(store, FakeMarket(df, 1, 1), T0))
+    assert store.session is None
+    store = _auto_store(score)
+    store.kill = True
+    run(scan(store, FakeMarket(df, 1, 1), T0))
+    assert store.session is None
+
+
+def test_auto_start_guardrails():
+    df, score = _hot()
+    ended = lambda mins, pnl=0.0: {"auto": True, "status": "stopped", "realized_pnl_usd": pnl,
+                                   "ended_at": (T0 - timedelta(minutes=mins)).isoformat()}
+    # separación mínima
+    store = _auto_store(score); store.history = [ended(10)]
+    run(scan(store, FakeMarket(df, 1, 1), T0)); assert store.session is None
+    # máximo por 24h
+    store = _auto_store(score); store.history = [ended(60 * i + 60) for i in range(4)]
+    run(scan(store, FakeMarket(df, 1, 1), T0)); assert store.session is None
+    # pérdida acumulada 24h
+    store = _auto_store(score); store.history = [ended(120, -0.6), ended(300, -0.5)]
+    run(scan(store, FakeMarket(df, 1, 1), T0)); assert store.session is None
+    # dentro de los límites: lanza
+    store = _auto_store(score); store.history = [ended(120, -0.3)]
+    run(scan(store, FakeMarket(df, 1, 1), T0)); assert store.session and store.session["auto"]

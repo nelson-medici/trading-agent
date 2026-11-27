@@ -73,7 +73,7 @@ async def _activate(store, sess: dict, now: datetime) -> dict | None:
         "last_tick_at": _iso(now),
     }
     await store.update_session(sess["id"], upd)
-    await store.insert_alert("info", "scalper", f"[scalper] Sesión iniciada · {sess['symbol']}",
+    await store.insert_alert("info", "scalper", f"[scalper] Sesión {'AUTO ' if sess.get('auto') else ''}iniciada · {sess['symbol']}",
                              f"{sess['duration_min']} min · capital ${capital:.2f} · máx {sess['max_trades']} trades",
                              {"session_id": sess["id"], "symbol": sess["symbol"]})
     log.info("scalper_session_started", symbol=sess["symbol"], capital=capital)

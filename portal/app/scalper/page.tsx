@@ -15,6 +15,7 @@ interface Session {
   max_capital_usd: number;
   max_trades: number;
   status: string;
+  auto: boolean;
   stop_reason: string | null;
   stop_detail: string | null;
   stop_requested: boolean;
@@ -173,8 +174,17 @@ export default function ScalperPage() {
     await load();
   }
 
+  async function toggleAuto() {
+    const next = { ...cfg, auto_start: { ...(cfg.auto_start || {}), enabled: !cfg.auto_start?.enabled } };
+    setCfg(next);
+    const { error } = await supabase.from("config").update({ value: next }).eq("key", "scalper.config");
+    if (error) setMsg(`Error: ${error.message}`);
+    await load();
+  }
+
   if (loading) return null;
 
+  const auto = cfg.auto_start || {};
   const secsLeft = live?.ends_at ? Math.max(0, Math.floor((new Date(live.ends_at).getTime() - now) / 1000)) : null;
   const unreal = openTrade && openTrade.last_price != null ? (openTrade.last_price - openTrade.entry_price) * openTrade.size_units : 0;
   const tickAge = live?.last_tick_at ? Math.floor((now - new Date(live.last_tick_at).getTime()) / 1000) : null;
@@ -197,6 +207,21 @@ export default function ScalperPage() {
           </div>
         )}
 
+        {/* AUTO-INICIO */}
+        <div className={`border px-3 py-2 flex items-center gap-3 flex-wrap text-[11px] ${auto.enabled ? "border-violet-700 bg-violet-950/15" : "border-zinc-800 bg-zinc-950"}`}>
+          <button onClick={toggleAuto} role="switch" aria-checked={!!auto.enabled}
+            className={`relative w-9 h-5 border transition-colors flex-shrink-0 ${auto.enabled ? "border-violet-500 bg-violet-600/40" : "border-zinc-700 bg-black"}`}>
+            <span className={`absolute top-0.5 w-3.5 h-3.5 transition-all ${auto.enabled ? "left-[18px] bg-violet-300" : "left-0.5 bg-zinc-600"}`} />
+          </button>
+          <span className={`uppercase tracking-wider text-[10px] ${auto.enabled ? "text-violet-300" : "text-zinc-500"}`}>
+            Auto-inicio {auto.enabled ? "activado" : "apagado"}
+          </span>
+          <span className="text-zinc-500">
+            Cuando el radar marca score ≥ {threshold}, lanza sola una sesión de {auto.duration_min ?? 30} min con ${auto.capital_usd ?? 25} sobre el mejor símbolo.
+            Frenos: máx. {auto.max_sessions_24h ?? 4} sesiones/24h · {auto.min_gap_min ?? 30} min entre sesiones · se apaga si pierde ${Number(auto.loss_limit_24h_usd ?? 1).toFixed(2)} en 24h.
+          </span>
+        </div>
+
         {/* SESIÓN EN CURSO o FORM */}
         {live ? (
           <section className="border border-lime-700 bg-lime-950/10 p-4">
@@ -205,6 +230,7 @@ export default function ScalperPage() {
                 <div className="text-[10px] uppercase tracking-[0.2em] text-lime-400 flex items-center gap-2">
                   <span className="w-1.5 h-1.5 rounded-full bg-lime-400 animate-pulse" />
                   {live.status === "requested" ? "Esperando al engine…" : "Sesión en curso"}
+                  {live.auto && <span className="border border-violet-600 text-violet-300 px-1.5 py-0.5 tracking-wider">auto</span>}
                 </div>
                 <div className="text-2xl text-zinc-100 mt-1">{live.symbol}</div>
                 <div className="text-[10px] text-zinc-500 mt-0.5">
@@ -382,7 +408,7 @@ export default function ScalperPage() {
                         <tr onClick={() => setExpanded(open ? null : s.id)} className="border-b border-zinc-900 hover:bg-zinc-900/40 cursor-pointer">
                           <td className="px-2 text-zinc-600">{open ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}</td>
                           <td className="px-3 py-2 text-[10px] text-zinc-500 whitespace-nowrap">{new Date(s.started_at || s.requested_at).toLocaleString()}</td>
-                          <td className="px-3 py-2 text-zinc-100 font-medium">{s.symbol}</td>
+                          <td className="px-3 py-2 text-zinc-100 font-medium">{s.symbol}{s.auto && <span className="ml-2 text-[9px] uppercase tracking-wider border border-violet-700 text-violet-300 px-1 py-0.5">auto</span>}</td>
                           <td className="px-3 py-2">
                             <span className={`text-[10px] uppercase tracking-wider px-1.5 py-0.5 border ${stopBadge(s)}`}>{STOP_LABEL[s.stop_reason || ""] || s.stop_reason || s.status}</span>
                           </td>
