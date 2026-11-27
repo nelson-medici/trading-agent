@@ -14,7 +14,7 @@ httpx = "^0.27"
 # Data
 pandas = "^2.2"
 numpy = "^1.26"
-pandas-ta = "^0.3.14b0"
+ta = "^0.11.0"
 # Exchange
 ccxt = "^4.3"
 # DB
