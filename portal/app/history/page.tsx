@@ -353,141 +353,133 @@ function ExpandedRow({ trade: t, decision }: { trade: Trade; decision: Decision 
 
   const notFound = decision && decision.id === "__none__";
 
+  // Format helpers compactos
+  const fmtTime = (iso: string) => new Date(iso).toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  const fmtPct = (n: number) => `${n >= 0 ? "+" : ""}${n.toFixed(2)}%`;
+
   return (
-    <tr className="border-b border-zinc-900 bg-zinc-950/40">
-      <td colSpan={12} className="px-6 py-5">
-        <div className="space-y-4">
+    <tr className="border-b border-zinc-900 bg-zinc-950/30">
+      <td colSpan={12} className="px-5 py-3">
+        <div className="text-[11px] leading-6 font-mono space-y-1">
 
-          {/* FILA 1: Timeline + plan original */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
-            {/* Timeline del trade */}
-            <div className="border border-zinc-900 p-3 space-y-1.5">
-              <div className="text-[10px] uppercase tracking-wider text-zinc-500 mb-2">// Timeline</div>
-              {decision && !notFound && (
-                <RowKV k="Decisión creada" v={new Date(decision.created_at).toLocaleString()} sub={latencyS != null ? `${latencyS.toFixed(1)}s hasta entry` : undefined} />
-              )}
-              <RowKV k="Apertura" v={new Date(t.entry_at).toLocaleString()} />
-              <RowKV k="Cierre" v={new Date(t.exit_at).toLocaleString()} />
-              <RowKV k="Duración" v={`${(t.hold_hours ?? 0).toFixed(2)} h`} />
-            </div>
-
-            {/* Plan original (de la decision) */}
-            <div className="border border-zinc-900 p-3 space-y-1.5">
-              <div className="text-[10px] uppercase tracking-wider text-zinc-500 mb-2">// Plan original</div>
-              {decision && !notFound ? (
-                <>
-                  <RowKV k="Entry planeado" v={decision.entry_price != null ? `$${decision.entry_price.toFixed(4)}` : "—"} />
-                  <RowKV k="Stop" v={stop != null ? `$${stop.toFixed(4)}` : "—"}
-                    sub={stop != null ? `${((stop - t.entry_price) / t.entry_price * 100).toFixed(2)}% desde entry` : undefined}
-                    tone="danger" />
-                  <RowKV k="Target" v={target != null ? `$${target.toFixed(4)}` : "—"}
-                    sub={target != null ? `${((target - t.entry_price) / t.entry_price * 100).toFixed(2)}% desde entry` : undefined}
-                    tone="success" />
-                  <RowKV k="Risk / Reward" v={rr != null ? `1 : ${rr.toFixed(2)}` : "—"} />
-                </>
-              ) : notFound ? (
-                <div className="text-zinc-600">Sin decisión asociada (puede haber sido manual o pre-tracking).</div>
-              ) : (
-                <div className="text-zinc-600">Buscando decisión...</div>
-              )}
-            </div>
-
-            {/* Ejecución real */}
-            <div className="border border-zinc-900 p-3 space-y-1.5">
-              <div className="text-[10px] uppercase tracking-wider text-zinc-500 mb-2">// Ejecución real</div>
-              <RowKV k="Entry real" v={`$${t.entry_price.toFixed(4)}`} />
-              <RowKV k="Exit real" v={`$${t.exit_price.toFixed(4)}`}
-                sub={exitVsStop != null && t.exit_reason === "stop" ? `${exitVsStop >= 0 ? "+" : ""}${exitVsStop.toFixed(2)}% vs stop` : exitVsTarget != null && t.exit_reason === "target" ? `${exitVsTarget >= 0 ? "+" : ""}${exitVsTarget.toFixed(2)}% vs target` : undefined} />
-              <RowKV k="Size" v={`${t.size_units.toFixed(6)} u`} />
-              <RowKV k="Notional" v={`${formatUsd(notionalEntry)} → ${formatUsd(notionalExit)}`} />
-            </div>
+          {/* Línea 1: Timeline */}
+          <div className="flex items-baseline gap-2 flex-wrap">
+            <span className="text-[9px] uppercase tracking-wider text-zinc-600 w-16">timeline</span>
+            {decision && !notFound && (
+              <>
+                <span className="text-zinc-500">decisión</span>
+                <span className="text-zinc-300 tabular-nums">{fmtTime(decision.created_at)}</span>
+                <span className="text-zinc-700">→</span>
+              </>
+            )}
+            <span className="text-zinc-500">entry</span>
+            <span className="text-zinc-300 tabular-nums">{fmtTime(t.entry_at)}</span>
+            <span className="text-zinc-700">→</span>
+            <span className="text-zinc-500">exit</span>
+            <span className="text-zinc-300 tabular-nums">{fmtTime(t.exit_at)}</span>
+            <span className="text-zinc-700">·</span>
+            <span className="text-zinc-500">hold</span>
+            <span className="text-zinc-300 tabular-nums">{(t.hold_hours ?? 0) < 1 ? `${((t.hold_hours ?? 0) * 60).toFixed(0)} min` : `${(t.hold_hours ?? 0).toFixed(2)}h`}</span>
+            {latencyS != null && (
+              <>
+                <span className="text-zinc-700">·</span>
+                <span className="text-zinc-500">latencia</span>
+                <span className="text-zinc-300 tabular-nums">{latencyS.toFixed(1)}s</span>
+              </>
+            )}
           </div>
 
-          {/* FILA 2: Descomposición del PnL */}
-          <div className="border border-zinc-900 p-3">
-            <div className="text-[10px] uppercase tracking-wider text-zinc-500 mb-2">// Descomposición del PnL</div>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
-              <PnlCell label="Precio" value={grossPnl} sub={`(${t.exit_price.toFixed(4)} − ${t.entry_price.toFixed(4)}) × ${t.size_units.toFixed(4)}`} />
-              <PnlCell label="Comisión" value={-Math.abs(commission)} sub={`~0.1% sobre ${formatUsd(notionalEntry)}`} />
-              <PnlCell label="PnL neto $" value={t.pnl_usd} bold />
-              <div className="border border-zinc-800 p-2">
-                <div className="text-[10px] uppercase tracking-wider text-zinc-500">PnL %</div>
-                <div className={`text-lg tabular-nums font-light ${t.pnl_pct >= 0 ? "text-emerald-400" : "text-red-400"}`}>
-                  {(t.pnl_pct * 100).toFixed(2)}%
-                </div>
-                <div className="text-[10px] text-zinc-600">sobre el notional invertido</div>
-              </div>
-            </div>
+          {/* Línea 2: Plan original */}
+          <div className="flex items-baseline gap-2 flex-wrap">
+            <span className="text-[9px] uppercase tracking-wider text-zinc-600 w-16">plan</span>
+            {decision && !notFound ? (
+              <>
+                <span className="text-zinc-500">entry</span>
+                <span className="text-zinc-200 tabular-nums">${decision.entry_price?.toFixed(4) ?? "—"}</span>
+                <span className="text-zinc-700">·</span>
+                <span className="text-zinc-500">stop</span>
+                <span className="text-red-400 tabular-nums">${stop?.toFixed(4) ?? "—"}</span>
+                {stop != null && <span className="text-red-500/70 tabular-nums text-[10px]">({fmtPct(((stop - t.entry_price) / t.entry_price) * 100)})</span>}
+                <span className="text-zinc-700">·</span>
+                <span className="text-zinc-500">target</span>
+                <span className="text-emerald-400 tabular-nums">${target?.toFixed(4) ?? "—"}</span>
+                {target != null && <span className="text-emerald-500/70 tabular-nums text-[10px]">({fmtPct(((target - t.entry_price) / t.entry_price) * 100)})</span>}
+                <span className="text-zinc-700">·</span>
+                <span className="text-zinc-500">R:R</span>
+                <span className="text-zinc-200 tabular-nums">{rr != null ? `1 : ${rr.toFixed(2)}` : "—"}</span>
+              </>
+            ) : notFound ? (
+              <span className="text-zinc-600 italic">sin decisión asociada</span>
+            ) : (
+              <span className="text-zinc-600 italic">buscando decisión...</span>
+            )}
           </div>
 
-          {/* FILA 3: Scoring y motivo */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {/* Justificación */}
-            <div className="border border-zinc-900 p-3">
-              <div className="text-[10px] uppercase tracking-wider text-zinc-500 mb-2">// Justificación de entrada</div>
-              {decision && !notFound && decision.justification ? (
-                <div className="text-xs text-zinc-300 leading-relaxed">{decision.justification}</div>
-              ) : notFound ? (
-                <div className="text-xs text-zinc-600">—</div>
-              ) : (
-                <div className="text-xs text-zinc-600">Buscando decisión asociada...</div>
-              )}
-              {decision && !notFound && decision.risks && decision.risks.length > 0 && (
-                <div className="mt-3 pt-2 border-t border-zinc-900">
-                  <div className="text-[10px] uppercase tracking-wider text-amber-500 mb-1">Riesgos identificados</div>
-                  <div className="flex flex-wrap gap-1">
-                    {decision.risks.map((r, i) => (
-                      <span key={i} className="text-[10px] px-1.5 py-0.5 border border-amber-900 text-amber-300 bg-amber-950/20">{r}</span>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
+          {/* Línea 3: Ejecución real */}
+          <div className="flex items-baseline gap-2 flex-wrap">
+            <span className="text-[9px] uppercase tracking-wider text-zinc-600 w-16">real</span>
+            <span className="text-zinc-500">entry</span>
+            <span className="text-zinc-200 tabular-nums">${t.entry_price.toFixed(4)}</span>
+            <span className="text-zinc-700">·</span>
+            <span className="text-zinc-500">exit</span>
+            <span className="text-zinc-200 tabular-nums">${t.exit_price.toFixed(4)}</span>
+            {exitVsStop != null && t.exit_reason === "stop" && (
+              <span className="text-red-500/70 tabular-nums text-[10px]">({exitVsStop >= 0 ? "+" : ""}{exitVsStop.toFixed(2)}% vs stop)</span>
+            )}
+            {exitVsTarget != null && t.exit_reason === "target" && (
+              <span className="text-emerald-500/70 tabular-nums text-[10px]">({exitVsTarget >= 0 ? "+" : ""}{exitVsTarget.toFixed(2)}% vs target)</span>
+            )}
+            <span className="text-zinc-700">·</span>
+            <span className="text-zinc-500">size</span>
+            <span className="text-zinc-200 tabular-nums">{t.size_units.toFixed(6)} u</span>
+            <span className="text-zinc-700">·</span>
+            <span className="text-zinc-500">notional</span>
+            <span className="text-zinc-200 tabular-nums">{formatUsd(notionalEntry)}</span>
+            <span className="text-zinc-700">→</span>
+            <span className="text-zinc-200 tabular-nums">{formatUsd(notionalExit)}</span>
+          </div>
 
-            {/* Lectura del cierre */}
-            <div className="border border-zinc-900 p-3 space-y-2">
-              <div className="text-[10px] uppercase tracking-wider text-zinc-500 mb-1">// Lectura del cierre</div>
-              <div className="text-xs text-zinc-300">
-                <ExitInterpretation trade={t} decision={decision && !notFound ? decision : null} />
-              </div>
-              <div className="pt-2 border-t border-zinc-900 flex items-center gap-4 text-[11px]">
-                <Link href={`/decisions/${encodeURIComponent(t.symbol)}`} className="text-lime-400 hover:underline">
-                  → Decisiones de {t.symbol}
-                </Link>
-                <Link href={`/charts?symbol=${encodeURIComponent(t.symbol)}`} className="text-lime-400 hover:underline">
-                  → Chart
-                </Link>
-              </div>
+          {/* Línea 4: PnL */}
+          <div className="flex items-baseline gap-2 flex-wrap">
+            <span className="text-[9px] uppercase tracking-wider text-zinc-600 w-16">pnl</span>
+            <span className="text-zinc-500">precio</span>
+            <span className={`tabular-nums ${grossPnl >= 0 ? "text-emerald-400" : "text-red-400"}`}>{formatUsd(grossPnl)}</span>
+            <span className="text-zinc-600 text-[10px]">({t.exit_price.toFixed(4)}−{t.entry_price.toFixed(4)})×{t.size_units.toFixed(4)}</span>
+            <span className="text-zinc-700">·</span>
+            <span className="text-zinc-500">comisión</span>
+            <span className="text-red-400 tabular-nums">−{formatUsd(Math.abs(commission))}</span>
+            <span className="text-zinc-700">·</span>
+            <span className="text-zinc-400 uppercase text-[10px] tracking-wider">neto</span>
+            <span className={`tabular-nums font-medium ${t.pnl_usd >= 0 ? "text-emerald-400" : "text-red-400"}`}>{formatUsd(t.pnl_usd)}</span>
+            <span className={`tabular-nums text-[10px] ${t.pnl_pct >= 0 ? "text-emerald-500/80" : "text-red-500/80"}`}>({(t.pnl_pct * 100).toFixed(2)}%)</span>
+          </div>
+
+          {/* Línea 5: Justificación + riesgos */}
+          {decision && !notFound && (decision.justification || (decision.risks && decision.risks.length > 0)) && (
+            <div className="flex items-baseline gap-2 flex-wrap">
+              <span className="text-[9px] uppercase tracking-wider text-zinc-600 w-16">motivo</span>
+              {decision.justification && <span className="text-zinc-300">{decision.justification}</span>}
+              {decision.risks && decision.risks.map((r, i) => (
+                <span key={i} className="text-[10px] px-1.5 py-0.5 border border-amber-900/70 text-amber-300 bg-amber-950/20 uppercase tracking-wider">{r}</span>
+              ))}
             </div>
+          )}
+
+          {/* Línea 6: Lectura automática + acciones */}
+          <div className="flex items-start gap-2 flex-wrap pt-1 border-t border-zinc-900/60 mt-1">
+            <span className="text-[9px] uppercase tracking-wider text-zinc-600 w-16 pt-1">lectura</span>
+            <span className="text-xs text-zinc-400 flex-1 min-w-[300px]">
+              <ExitInterpretation trade={t} decision={decision && !notFound ? decision : null} />
+            </span>
+            <span className="flex items-center gap-3 text-[10px] pt-1">
+              <Link href={`/decisions/${encodeURIComponent(t.symbol)}`} className="text-lime-400 hover:underline">→ decisiones</Link>
+              <Link href={`/charts?symbol=${encodeURIComponent(t.symbol)}`} className="text-lime-400 hover:underline">→ chart</Link>
+            </span>
           </div>
 
         </div>
       </td>
     </tr>
-  );
-}
-
-function RowKV({ k, v, sub, tone = "neutral" }: { k: string; v: string; sub?: string; tone?: string }) {
-  const color = { neutral: "text-zinc-200", success: "text-emerald-400", warn: "text-amber-400", danger: "text-red-400" }[tone] || "text-zinc-200";
-  return (
-    <div className="flex items-start justify-between gap-2">
-      <span className="text-[10px] uppercase tracking-wider text-zinc-500 pt-0.5">{k}</span>
-      <span className="text-right">
-        <div className={`tabular-nums ${color}`}>{v}</div>
-        {sub && <div className="text-[9px] text-zinc-600">{sub}</div>}
-      </span>
-    </div>
-  );
-}
-
-function PnlCell({ label, value, sub, bold = false }: { label: string; value: number; sub?: string; bold?: boolean }) {
-  const color = value > 0 ? "text-emerald-400" : value < 0 ? "text-red-400" : "text-zinc-400";
-  return (
-    <div className="border border-zinc-800 p-2">
-      <div className="text-[10px] uppercase tracking-wider text-zinc-500">{label}</div>
-      <div className={`tabular-nums ${bold ? "text-lg font-light" : "text-sm"} ${color}`}>{formatUsd(value)}</div>
-      {sub && <div className="text-[9px] text-zinc-600 mt-0.5">{sub}</div>}
-    </div>
   );
 }
 
