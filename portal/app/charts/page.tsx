@@ -6,6 +6,8 @@ import Shell from "@/components/Shell";
 import CandlestickChart, { Candle, EmaOverlay, Marker, HorizontalLine } from "@/components/CandlestickChart";
 import { computeEMA, formatUsd } from "@/lib/utils";
 import { detectLevels, detectFVG, detectRejections, computeVolumeProfile, type PriceLevel, type FVGZone, type Rejection, type VolumeProfileBar } from "@/lib/patterns";
+import { analyzeMarket, type AnalysisResult } from "@/lib/analyzer";
+import { Search, TrendingUp, TrendingDown, Minus, Clock, Eye, ShoppingCart, XCircle, Save, ChevronDown, ChevronUp } from "lucide-react";
 
 const UNIVERSE_CRYPTO = ["BTC/USDT", "ETH/USDT", "SOL/USDT", "BNB/USDT", "AVAX/USDT", "LINK/USDT", "DOT/USDT", "MATIC/USDT", "ARB/USDT"];
 const UNIVERSE_EQUITIES = ["SPY", "QQQ", "AAPL", "MSFT", "NVDA", "TSLA", "META", "AMZN"];
@@ -64,6 +66,9 @@ export default function ChartsPage() {
   const [showFVG, setShowFVG] = useState(false);
   const [showRejections, setShowRejections] = useState(false);
   const [showVolProfile, setShowVolProfile] = useState(false);
+  const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
+  const [analysisOpen, setAnalysisOpen] = useState(false);
+  const [savedAnalyses, setSavedAnalyses] = useState<AnalysisResult[]>([]);
 
   // Límites por timeframe: 1m→120 (2h), 5m→120 (10h), 15m+→500
   const limitOptions: Record<string, number[]> = {
@@ -350,6 +355,21 @@ export default function ChartsPage() {
             ))}
           </div>
 
+          <button onClick={() => {
+              if (candles.length < 20) return;
+              const result = analyzeMarket(candles, symbol, timeframe);
+              setAnalysis(result);
+              setAnalysisOpen(true);
+              // Prender overlays
+              setShowSR(true);
+              setShowFVG(true);
+              setShowRejections(true);
+            }}
+            disabled={candles.length < 20}
+            className="flex items-center gap-1.5 border border-violet-700 bg-violet-950/30 px-3 py-1 text-[10px] uppercase tracking-wider text-violet-300 hover:bg-violet-950/50 hover:border-violet-500 transition-colors disabled:opacity-30">
+            <Search className="w-3 h-3" /> Analizar
+          </button>
+
           <div className="ml-auto flex items-center gap-2 text-[11px] text-zinc-500">
             {lastPrice != null && (
               <span>Last: <span className="text-zinc-100 tabular-nums">${lastPrice.toFixed(2)}</span></span>
@@ -390,6 +410,160 @@ export default function ChartsPage() {
             />
           )}
         </div>
+
+        {/* Panel de análisis */}
+        {analysis && analysisOpen && (
+          <div className="border border-violet-800/50 bg-zinc-950 overflow-hidden">
+            {/* Header */}
+            <div className="px-4 py-2.5 border-b border-violet-900/30 flex items-center justify-between bg-violet-950/20">
+              <div className="flex items-center gap-3">
+                <div className="flex items-center gap-1.5">
+                  {analysis.action === "BUY" && <ShoppingCart className="w-4 h-4 text-emerald-400" />}
+                  {analysis.action === "SELL" && <XCircle className="w-4 h-4 text-red-400" />}
+                  {analysis.action === "WATCH" && <Eye className="w-4 h-4 text-amber-400" />}
+                  {analysis.action === "WAIT" && <Clock className="w-4 h-4 text-zinc-400" />}
+                  <span className={`text-sm font-medium ${
+                    analysis.action === "BUY" ? "text-emerald-400" :
+                    analysis.action === "SELL" ? "text-red-400" :
+                    analysis.action === "WATCH" ? "text-amber-400" : "text-zinc-400"
+                  }`}>{analysis.action}</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  {analysis.bias === "bullish" && <TrendingUp className="w-3.5 h-3.5 text-emerald-400" />}
+                  {analysis.bias === "bearish" && <TrendingDown className="w-3.5 h-3.5 text-red-400" />}
+                  {analysis.bias === "neutral" && <Minus className="w-3.5 h-3.5 text-zinc-400" />}
+                  <span className="text-[10px] uppercase tracking-wider text-zinc-500">
+                    {analysis.bias} · {analysis.biasStrength}%
+                  </span>
+                </div>
+                <span className="text-[10px] text-zinc-600">
+                  {new Date(analysis.timestamp).toLocaleTimeString()}
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <button onClick={() => setSavedAnalyses((prev) => [analysis, ...prev].slice(0, 20))}
+                  className="flex items-center gap-1 border border-zinc-700 px-2 py-0.5 text-[9px] uppercase tracking-wider text-zinc-400 hover:text-violet-300 hover:border-violet-700">
+                  <Save className="w-3 h-3" /> guardar
+                </button>
+                <button onClick={() => setAnalysisOpen(false)}
+                  className="text-zinc-500 hover:text-zinc-300 text-[10px] uppercase tracking-wider">
+                  cerrar
+                </button>
+              </div>
+            </div>
+
+            {/* Lectura */}
+            <div className="px-4 py-3">
+              <div className="text-[13px] text-zinc-200 leading-relaxed mb-3">{analysis.reading}</div>
+
+              {analysis.triggerCondition && (
+                <div className="border border-amber-900/40 bg-amber-950/10 px-3 py-2 mb-3 flex items-start gap-2">
+                  <Eye className="w-3.5 h-3.5 text-amber-400 mt-0.5 flex-shrink-0" />
+                  <div>
+                    <div className="text-[10px] uppercase tracking-wider text-amber-400 mb-0.5">Trigger · esperando confirmación</div>
+                    <div className="text-[11px] text-amber-200/80">{analysis.triggerCondition}</div>
+                  </div>
+                </div>
+              )}
+
+              {/* Patrones detectados */}
+              {analysis.patterns.length > 0 && (
+                <div className="mb-3">
+                  <div className="text-[10px] uppercase tracking-wider text-zinc-600 mb-1.5">Patrones detectados</div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-1.5">
+                    {analysis.patterns.map((p, i) => (
+                      <div key={i} className={`border px-2.5 py-2 ${
+                        p.confirmed
+                          ? p.bias === "bullish" ? "border-emerald-900 bg-emerald-950/10" : p.bias === "bearish" ? "border-red-900 bg-red-950/10" : "border-zinc-800"
+                          : "border-zinc-800 border-dashed"
+                      }`}>
+                        <div className="flex items-center justify-between">
+                          <span className="text-[11px] text-zinc-200 font-medium">{p.name}</span>
+                          <div className="flex items-center gap-1.5">
+                            <span className={`text-[9px] uppercase tracking-wider ${p.confirmed ? "text-lime-400" : "text-zinc-600"}`}>
+                              {p.confirmed ? "confirmado" : "en formación"}
+                            </span>
+                            <span className="text-[9px] tabular-nums text-zinc-500">{p.strength}%</span>
+                          </div>
+                        </div>
+                        <div className="text-[10px] text-zinc-500 mt-0.5">{p.description}</div>
+                        {!p.confirmed && (
+                          <div className="text-[10px] text-amber-400/70 mt-1">→ {p.confirmationRule}</div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Detalles */}
+              <details className="group">
+                <summary className="text-[10px] uppercase tracking-wider text-zinc-600 cursor-pointer hover:text-zinc-400 flex items-center gap-1">
+                  <ChevronDown className="w-3 h-3 group-open:hidden" />
+                  <ChevronUp className="w-3 h-3 hidden group-open:inline" />
+                  Indicadores y detalle
+                </summary>
+                <div className="mt-2 grid grid-cols-2 md:grid-cols-4 gap-2 text-[11px]">
+                  <div className="bg-zinc-900/50 px-2 py-1.5">
+                    <span className="text-zinc-600">EMA9/21</span>
+                    <span className={`ml-2 tabular-nums ${analysis.ema9 > analysis.ema21 ? "text-emerald-400" : "text-red-400"}`}>
+                      {analysis.ema9 > analysis.ema21 ? "↑ alcista" : "↓ bajista"}
+                    </span>
+                  </div>
+                  <div className="bg-zinc-900/50 px-2 py-1.5">
+                    <span className="text-zinc-600">RSI</span>
+                    <span className={`ml-2 tabular-nums ${analysis.rsi < 30 ? "text-emerald-400" : analysis.rsi > 70 ? "text-red-400" : "text-zinc-300"}`}>
+                      {analysis.rsi.toFixed(0)}
+                    </span>
+                  </div>
+                  <div className="bg-zinc-900/50 px-2 py-1.5">
+                    <span className="text-zinc-600">ATR</span>
+                    <span className="ml-2 tabular-nums text-zinc-300">{analysis.atrPct.toFixed(2)}%</span>
+                  </div>
+                  <div className="bg-zinc-900/50 px-2 py-1.5">
+                    <span className="text-zinc-600">Vol</span>
+                    <span className={`ml-2 tabular-nums ${analysis.volumeRatio > 1.5 ? "text-emerald-400" : analysis.volumeRatio < 0.5 ? "text-red-400" : "text-zinc-300"}`}>
+                      {analysis.volumeRatio.toFixed(1)}×
+                    </span>
+                  </div>
+                </div>
+                <ul className="mt-2 space-y-0.5">
+                  {analysis.details.map((d, i) => (
+                    <li key={i} className="text-[11px] text-zinc-400 flex gap-1.5">
+                      <span className="text-zinc-600">▸</span> {d}
+                    </li>
+                  ))}
+                </ul>
+              </details>
+            </div>
+          </div>
+        )}
+
+        {/* Historial de análisis guardados */}
+        {savedAnalyses.length > 0 && (
+          <details className="border border-zinc-800 bg-zinc-950">
+            <summary className="px-3 py-2 text-[10px] uppercase tracking-wider text-zinc-500 cursor-pointer hover:text-zinc-300">
+              Análisis guardados ({savedAnalyses.length})
+            </summary>
+            <div className="border-t border-zinc-900 divide-y divide-zinc-900">
+              {savedAnalyses.map((a, i) => (
+                <div key={i} className="px-3 py-2 flex items-center justify-between text-[11px] hover:bg-zinc-900/50 cursor-pointer"
+                  onClick={() => { setAnalysis(a); setAnalysisOpen(true); setSymbol(a.symbol); setTimeframe(a.timeframe); }}>
+                  <div className="flex items-center gap-3">
+                    <span className={`font-medium ${
+                      a.action === "BUY" ? "text-emerald-400" : a.action === "SELL" ? "text-red-400" :
+                      a.action === "WATCH" ? "text-amber-400" : "text-zinc-400"
+                    }`}>{a.action}</span>
+                    <span className="text-zinc-300">{a.symbol}</span>
+                    <span className="text-zinc-600">{a.timeframe}</span>
+                    <span className="text-zinc-500">{a.patterns.length} patrones</span>
+                  </div>
+                  <span className="text-zinc-600 tabular-nums">{new Date(a.timestamp).toLocaleTimeString()}</span>
+                </div>
+              ))}
+            </div>
+          </details>
+        )}
 
         {/* Volume Profile panel */}
         {showVolProfile && volProfile.length > 0 && (
