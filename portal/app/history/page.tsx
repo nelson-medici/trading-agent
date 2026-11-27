@@ -33,7 +33,13 @@ interface Decision {
   justification: string | null;
   risks: string[] | null;
   score: number | null;
+  entry_price: number | null;
+  stop_price: number | null;
+  target_price: number | null;
+  notional_usd: number | null;
   created_at: string;
+  executed_at: string | null;
+  status: string;
 }
 
 export default function HistoryPage() {
@@ -77,17 +83,35 @@ export default function HistoryPage() {
 
   async function loadDecision(tradeId: string, symbol: string, entryAt: string) {
     if (decisions[tradeId]) return;
-    // Buscar decisión más cercana en el tiempo al entry de este trade
+    // Matchear por created_at dentro de una ventana ±10 min alrededor del entry.
+    // (el engine crea la decision, abre la posición y recién después marca status=executed,
+    // así que executed_at puede ser posterior al entry_at del trade).
+    const entryMs = new Date(entryAt).getTime();
+    const windowMs = 10 * 60 * 1000;
+    const after = new Date(entryMs - windowMs).toISOString();
+    const before = new Date(entryMs + windowMs).toISOString();
+
     const { data } = await supabase
       .from("decisions")
       .select("*")
       .eq("symbol", symbol)
-      .eq("status", "executed")
-      .lte("executed_at", entryAt)
-      .order("executed_at", { ascending: false })
-      .limit(1);
+      .in("status", ["executed", "approved", "pending"])
+      .gte("created_at", after)
+      .lte("created_at", before)
+      .order("created_at", { ascending: false })
+      .limit(10);
+
     if (data && data.length > 0) {
-      setDecisions((prev) => ({ ...prev, [tradeId]: data[0] as Decision }));
+      // Elegir la decisión cuyo created_at esté más cerca del entry_at del trade
+      const best = (data as Decision[]).reduce((best, curr) => {
+        const bestDelta = Math.abs(entryMs - new Date(best.created_at).getTime());
+        const currDelta = Math.abs(entryMs - new Date(curr.created_at).getTime());
+        return currDelta < bestDelta ? curr : best;
+      });
+      setDecisions((prev) => ({ ...prev, [tradeId]: best }));
+    } else {
+      // Marcar como no encontrada para que no quede en loading infinito
+      setDecisions((prev) => ({ ...prev, [tradeId]: { id: "__none__", symbol, justification: null, risks: null, score: null, entry_price: null, stop_price: null, target_price: null, notional_usd: null, created_at: "", executed_at: null, status: "not_found" } }));
     }
   }
 
@@ -257,39 +281,7 @@ export default function HistoryPage() {
                           </td>
                           <td className="px-3 py-2 text-right text-zinc-500 text-[10px]">{new Date(t.exit_at).toLocaleString()}</td>
                         </tr>
-                        {isExpanded && (
-                          <tr className="border-b border-zinc-900 bg-zinc-950/40">
-                            <td colSpan={12} className="px-6 py-4">
-                              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
-                                <div>
-                                  <div className="text-[10px] uppercase tracking-wider text-zinc-500 mb-1">Justificación de entrada</div>
-                                  {decisions[t.id] ? (
-                                    <div className="text-zinc-300">{decisions[t.id].justification}</div>
-                                  ) : (
-                                    <div className="text-zinc-600">Buscando decisión asociada...</div>
-                                  )}
-                                  {decisions[t.id]?.risks && decisions[t.id].risks!.length > 0 && (
-                                    <div className="mt-2 text-red-400 text-[11px]">
-                                      Riesgos: {decisions[t.id].risks!.join(", ")}
-                                    </div>
-                                  )}
-                                </div>
-                                <div className="space-y-1 text-zinc-400">
-                                  <div><span className="text-zinc-500">Entry time:</span> {new Date(t.entry_at).toLocaleString()}</div>
-                                  <div><span className="text-zinc-500">Exit time:</span> {new Date(t.exit_at).toLocaleString()}</div>
-                                  <div><span className="text-zinc-500">Size:</span> {t.size_units} unidades</div>
-                                  <div><span className="text-zinc-500">Notional entry:</span> {formatUsd(t.size_units * t.entry_price)}</div>
-                                  <div><span className="text-zinc-500">Comisión:</span> {formatUsd(t.commission_usd ?? 0)}</div>
-                                  <div className="pt-2">
-                                    <Link href={`/charts`} className="text-lime-400 hover:underline text-[11px]">
-                                      → Ver chart de {t.symbol}
-                                    </Link>
-                                  </div>
-                                </div>
-                              </div>
-                            </td>
-                          </tr>
-                        )}
+                        {isExpanded && <ExpandedRow trade={t} decision={decisions[t.id]} />}
                       </>
                     );
                   })}
@@ -337,6 +329,192 @@ function ReasonIcon({ reason }: { reason: string }) {
   const Icon = map[reason] || Clock;
   const color = reason === "target" ? "text-emerald-400" : reason === "stop" ? "text-red-400" : "text-zinc-400";
   return <Icon className={`w-3 h-3 ${color}`} />;
+}
+
+function ExpandedRow({ trade: t, decision }: { trade: Trade; decision: Decision | undefined }) {
+  const notionalEntry = t.size_units * t.entry_price;
+  const notionalExit = t.size_units * t.exit_price;
+  const commission = t.commission_usd ?? notionalEntry * 0.001;
+  const grossPnl = (t.exit_price - t.entry_price) * t.size_units;
+  const entryMs = new Date(t.entry_at).getTime();
+  const decisionCreatedMs = decision?.created_at ? new Date(decision.created_at).getTime() : null;
+  const latencyS = decisionCreatedMs != null ? (entryMs - decisionCreatedMs) / 1000 : null;
+
+  // Risk & reward teóricos (si hay decision con stop/target)
+  const stop = decision?.stop_price ?? null;
+  const target = decision?.target_price ?? null;
+  const riskPerUnit = stop != null ? Math.abs(t.entry_price - stop) : null;
+  const rewardPerUnit = target != null ? Math.abs(target - t.entry_price) : null;
+  const rr = riskPerUnit && rewardPerUnit ? rewardPerUnit / riskPerUnit : null;
+
+  // Cuánto se alejó el exit del stop original (para detectar stops muy pegados vs slippage)
+  const exitVsStop = stop != null ? ((t.exit_price - stop) / stop) * 100 : null;
+  const exitVsTarget = target != null ? ((t.exit_price - target) / target) * 100 : null;
+
+  const notFound = decision && decision.id === "__none__";
+
+  return (
+    <tr className="border-b border-zinc-900 bg-zinc-950/40">
+      <td colSpan={12} className="px-6 py-5">
+        <div className="space-y-4">
+
+          {/* FILA 1: Timeline + plan original */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
+            {/* Timeline del trade */}
+            <div className="border border-zinc-900 p-3 space-y-1.5">
+              <div className="text-[10px] uppercase tracking-wider text-zinc-500 mb-2">// Timeline</div>
+              {decision && !notFound && (
+                <RowKV k="Decisión creada" v={new Date(decision.created_at).toLocaleString()} sub={latencyS != null ? `${latencyS.toFixed(1)}s hasta entry` : undefined} />
+              )}
+              <RowKV k="Apertura" v={new Date(t.entry_at).toLocaleString()} />
+              <RowKV k="Cierre" v={new Date(t.exit_at).toLocaleString()} />
+              <RowKV k="Duración" v={`${(t.hold_hours ?? 0).toFixed(2)} h`} />
+            </div>
+
+            {/* Plan original (de la decision) */}
+            <div className="border border-zinc-900 p-3 space-y-1.5">
+              <div className="text-[10px] uppercase tracking-wider text-zinc-500 mb-2">// Plan original</div>
+              {decision && !notFound ? (
+                <>
+                  <RowKV k="Entry planeado" v={decision.entry_price != null ? `$${decision.entry_price.toFixed(4)}` : "—"} />
+                  <RowKV k="Stop" v={stop != null ? `$${stop.toFixed(4)}` : "—"}
+                    sub={stop != null ? `${((stop - t.entry_price) / t.entry_price * 100).toFixed(2)}% desde entry` : undefined}
+                    tone="danger" />
+                  <RowKV k="Target" v={target != null ? `$${target.toFixed(4)}` : "—"}
+                    sub={target != null ? `${((target - t.entry_price) / t.entry_price * 100).toFixed(2)}% desde entry` : undefined}
+                    tone="success" />
+                  <RowKV k="Risk / Reward" v={rr != null ? `1 : ${rr.toFixed(2)}` : "—"} />
+                </>
+              ) : notFound ? (
+                <div className="text-zinc-600">Sin decisión asociada (puede haber sido manual o pre-tracking).</div>
+              ) : (
+                <div className="text-zinc-600">Buscando decisión...</div>
+              )}
+            </div>
+
+            {/* Ejecución real */}
+            <div className="border border-zinc-900 p-3 space-y-1.5">
+              <div className="text-[10px] uppercase tracking-wider text-zinc-500 mb-2">// Ejecución real</div>
+              <RowKV k="Entry real" v={`$${t.entry_price.toFixed(4)}`} />
+              <RowKV k="Exit real" v={`$${t.exit_price.toFixed(4)}`}
+                sub={exitVsStop != null && t.exit_reason === "stop" ? `${exitVsStop >= 0 ? "+" : ""}${exitVsStop.toFixed(2)}% vs stop` : exitVsTarget != null && t.exit_reason === "target" ? `${exitVsTarget >= 0 ? "+" : ""}${exitVsTarget.toFixed(2)}% vs target` : undefined} />
+              <RowKV k="Size" v={`${t.size_units.toFixed(6)} u`} />
+              <RowKV k="Notional" v={`${formatUsd(notionalEntry)} → ${formatUsd(notionalExit)}`} />
+            </div>
+          </div>
+
+          {/* FILA 2: Descomposición del PnL */}
+          <div className="border border-zinc-900 p-3">
+            <div className="text-[10px] uppercase tracking-wider text-zinc-500 mb-2">// Descomposición del PnL</div>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+              <PnlCell label="Precio" value={grossPnl} sub={`(${t.exit_price.toFixed(4)} − ${t.entry_price.toFixed(4)}) × ${t.size_units.toFixed(4)}`} />
+              <PnlCell label="Comisión" value={-Math.abs(commission)} sub={`~0.1% sobre ${formatUsd(notionalEntry)}`} />
+              <PnlCell label="PnL neto $" value={t.pnl_usd} bold />
+              <div className="border border-zinc-800 p-2">
+                <div className="text-[10px] uppercase tracking-wider text-zinc-500">PnL %</div>
+                <div className={`text-lg tabular-nums font-light ${t.pnl_pct >= 0 ? "text-emerald-400" : "text-red-400"}`}>
+                  {(t.pnl_pct * 100).toFixed(2)}%
+                </div>
+                <div className="text-[10px] text-zinc-600">sobre el notional invertido</div>
+              </div>
+            </div>
+          </div>
+
+          {/* FILA 3: Scoring y motivo */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* Justificación */}
+            <div className="border border-zinc-900 p-3">
+              <div className="text-[10px] uppercase tracking-wider text-zinc-500 mb-2">// Justificación de entrada</div>
+              {decision && !notFound && decision.justification ? (
+                <div className="text-xs text-zinc-300 leading-relaxed">{decision.justification}</div>
+              ) : notFound ? (
+                <div className="text-xs text-zinc-600">—</div>
+              ) : (
+                <div className="text-xs text-zinc-600">Buscando decisión asociada...</div>
+              )}
+              {decision && !notFound && decision.risks && decision.risks.length > 0 && (
+                <div className="mt-3 pt-2 border-t border-zinc-900">
+                  <div className="text-[10px] uppercase tracking-wider text-amber-500 mb-1">Riesgos identificados</div>
+                  <div className="flex flex-wrap gap-1">
+                    {decision.risks.map((r, i) => (
+                      <span key={i} className="text-[10px] px-1.5 py-0.5 border border-amber-900 text-amber-300 bg-amber-950/20">{r}</span>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Lectura del cierre */}
+            <div className="border border-zinc-900 p-3 space-y-2">
+              <div className="text-[10px] uppercase tracking-wider text-zinc-500 mb-1">// Lectura del cierre</div>
+              <div className="text-xs text-zinc-300">
+                <ExitInterpretation trade={t} decision={decision && !notFound ? decision : null} />
+              </div>
+              <div className="pt-2 border-t border-zinc-900 flex items-center gap-4 text-[11px]">
+                <Link href={`/decisions/${encodeURIComponent(t.symbol)}`} className="text-lime-400 hover:underline">
+                  → Decisiones de {t.symbol}
+                </Link>
+                <Link href={`/charts?symbol=${encodeURIComponent(t.symbol)}`} className="text-lime-400 hover:underline">
+                  → Chart
+                </Link>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </td>
+    </tr>
+  );
+}
+
+function RowKV({ k, v, sub, tone = "neutral" }: { k: string; v: string; sub?: string; tone?: string }) {
+  const color = { neutral: "text-zinc-200", success: "text-emerald-400", warn: "text-amber-400", danger: "text-red-400" }[tone] || "text-zinc-200";
+  return (
+    <div className="flex items-start justify-between gap-2">
+      <span className="text-[10px] uppercase tracking-wider text-zinc-500 pt-0.5">{k}</span>
+      <span className="text-right">
+        <div className={`tabular-nums ${color}`}>{v}</div>
+        {sub && <div className="text-[9px] text-zinc-600">{sub}</div>}
+      </span>
+    </div>
+  );
+}
+
+function PnlCell({ label, value, sub, bold = false }: { label: string; value: number; sub?: string; bold?: boolean }) {
+  const color = value > 0 ? "text-emerald-400" : value < 0 ? "text-red-400" : "text-zinc-400";
+  return (
+    <div className="border border-zinc-800 p-2">
+      <div className="text-[10px] uppercase tracking-wider text-zinc-500">{label}</div>
+      <div className={`tabular-nums ${bold ? "text-lg font-light" : "text-sm"} ${color}`}>{formatUsd(value)}</div>
+      {sub && <div className="text-[9px] text-zinc-600 mt-0.5">{sub}</div>}
+    </div>
+  );
+}
+
+function ExitInterpretation({ trade: t, decision }: { trade: Trade; decision: Decision | null }) {
+  const reason = t.exit_reason;
+  const hold = t.hold_hours ?? 0;
+  const scoreHeld = t.score_at_entry != null && t.score_at_exit != null && Math.abs(t.score_at_entry - t.score_at_exit) < 0.01;
+
+  if (reason === "stop" && hold < 0.5) {
+    return <>Stop saltó en <span className="text-amber-300">{(hold * 60).toFixed(0)} min</span>. El movimiento adverso fue inmediato tras la entrada — típico de stop demasiado pegado o entrada sobre un pico. Con stop más ancho (ATR×2.5) o entrada confirmada por retest, este caso podría haberse evitado.</>;
+  }
+  if (reason === "stop") {
+    return <>Stop ejecutado tras <span className="text-amber-300">{hold.toFixed(1)}h</span> de hold. El setup se rompió. {scoreHeld ? "El score se mantuvo igual, así que el stop fue puramente por precio (no por deterioro de señal)." : "El score cambió durante el trade — revisar si convenía salir antes."}</>;
+  }
+  if (reason === "target") {
+    return <>Target alcanzado en <span className="text-emerald-400">{hold.toFixed(1)}h</span>. La tesis se materializó según lo planeado. {decision?.target_price ? `Entry → target = ${(((decision.target_price - t.entry_price) / t.entry_price) * 100).toFixed(2)}%.` : ""}</>;
+  }
+  if (reason === "score_broken") {
+    return <>Salida por deterioro de señal: el score cayó por debajo del threshold mientras la posición estaba abierta. Protección anti-reversión.</>;
+  }
+  if (reason === "rotation") {
+    return <>Cerrado para liberar capital hacia una oportunidad con score más alto en el mismo pool.</>;
+  }
+  if (reason === "manual") {
+    return <>Cierre manual desde el portal.</>;
+  }
+  return <>Cerrado por motivo: <span className="text-zinc-400">{reason ?? "desconocido"}</span>.</>;
 }
 
 function reasonBadge(reason: string | null): string {
