@@ -151,10 +151,6 @@ export default function Shell({ current, children }: { current: View; children: 
           </div>
 
           <div className="flex items-center gap-2 md:gap-3 text-[11px] flex-shrink-0">
-            {/* Fecha arriba (la hora + dot van en la nav bar inferior para no duplicarlas) */}
-            <div className="hidden sm:flex items-center text-[10px] text-zinc-400 tabular-nums">
-              {now.toLocaleDateString("es-AR", { weekday: "short", day: "2-digit", month: "short" })}
-            </div>
 
             {/* KPI compacto en mobile: solo equity + gain (sin dot acá; va al lado del reloj) */}
             {kpis && (
@@ -290,9 +286,13 @@ export default function Shell({ current, children }: { current: View; children: 
               {v.label}
             </Link>
           ))}
-          <div className="ml-auto flex items-center gap-2 text-[10px] text-zinc-500 pr-2">
+          <div className="ml-auto flex items-center gap-2 text-[10px] text-zinc-400 pr-2">
+            <span className="capitalize">
+              {now.toLocaleDateString("es-AR", { weekday: "short", day: "2-digit", month: "short" })}
+            </span>
+            <span className="text-zinc-700">|</span>
             <span className="tabular-nums">
-              {now.toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false })}
+              {now.toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit", hour12: false })}
             </span>
             {kpis && <EngineDot status={kpis.engine_status} title={engineStatusTitle(kpis)} />}
           </div>
