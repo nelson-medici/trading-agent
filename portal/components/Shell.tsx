@@ -37,6 +37,7 @@ interface HeaderKPIs {
   open_positions: number | null;
   engine_status: string | null;
   engine_last_heartbeat: string | null;
+  engine_seconds_since_heartbeat: number | null;
 }
 
 interface Alert {
@@ -75,7 +76,7 @@ export default function Shell({ current, children }: { current: View; children: 
   useEffect(() => {
     async function loadKpis() {
       const { data } = await supabase.from("v_dashboard_summary").select(
-        "current_equity, total_invested, total_gain, total_gain_pct, open_positions, engine_status, engine_last_heartbeat"
+        "current_equity, total_invested, total_gain, total_gain_pct, open_positions, engine_status, engine_last_heartbeat, engine_seconds_since_heartbeat"
       ).single();
       if (data) setKpis(data as HeaderKPIs);
     }
@@ -163,19 +164,19 @@ export default function Shell({ current, children }: { current: View; children: 
             {/* KPI compacto en mobile: solo equity + gain + dot */}
             {kpis && (
               <div className="flex md:hidden items-center gap-1.5 border border-zinc-800 bg-zinc-950 px-2 py-1"
-                title={`Equity ${kpis.current_equity?.toFixed(2)} · Gain ${kpis.total_gain?.toFixed(2)}`}>
+                title={engineStatusTitle(kpis)}>
                 <span className="text-[10px] text-lime-400 tabular-nums">${kpis.current_equity?.toFixed(0) ?? "—"}</span>
                 <span className={`text-[10px] tabular-nums ${(kpis.total_gain ?? 0) > 0 ? "text-emerald-400" : (kpis.total_gain ?? 0) < 0 ? "text-red-400" : "text-zinc-400"}`}>
                   {kpis.total_gain != null ? `${kpis.total_gain >= 0 ? "+" : ""}$${kpis.total_gain.toFixed(2)}` : "—"}
                 </span>
-                <span className={`w-1.5 h-1.5 rounded-full ${kpis.engine_status === "healthy" ? "bg-lime-400 animate-pulse" : "bg-amber-500"}`} />
+                <EngineDot status={kpis.engine_status} />
               </div>
             )}
 
             {/* KPIs permanentes — completos solo en desktop */}
             {kpis && (
               <div className="hidden md:flex items-center gap-4 border border-zinc-800 bg-zinc-950 px-3 py-1"
-                title={`Engine: ${kpis.engine_status ?? "unknown"} · dev mode · paper broker`}>
+                title={engineStatusTitle(kpis)}>
                 <KpiItem label="Equity" value={kpis.current_equity != null ? `$${kpis.current_equity.toFixed(2)}` : "—"} tone="accent" />
                 <KpiItem label="Inv" value={kpis.total_invested != null ? `$${kpis.total_invested.toFixed(0)}` : "—"} />
                 <KpiItem
@@ -185,8 +186,7 @@ export default function Shell({ current, children }: { current: View; children: 
                   tone={(kpis.total_gain ?? 0) > 0 ? "success" : (kpis.total_gain ?? 0) < 0 ? "danger" : "neutral"}
                 />
                 <KpiItem label="Pos" value={kpis.open_positions ?? 0} />
-                <span className={`w-1.5 h-1.5 rounded-full ${kpis.engine_status === "healthy" ? "bg-lime-400 animate-pulse" : "bg-amber-500"}`}
-                  title={kpis.engine_status === "healthy" ? "Engine healthy" : "Engine stale"} />
+                <EngineDot status={kpis.engine_status} />
               </div>
             )}
 
@@ -393,6 +393,24 @@ function AlertRow({ alert, onAck }: { alert: Alert; onAck: () => void }) {
       </div>
     </div>
   );
+}
+
+function EngineDot({ status }: { status: string | null }) {
+  // healthy = verde pulsando · stale = amber · down = rojo pulsando · unknown = gris
+  const map: Record<string, string> = {
+    healthy: "bg-lime-400 animate-pulse",
+    stale: "bg-amber-500",
+    down: "bg-red-500 animate-pulse",
+  };
+  const cls = map[status ?? "unknown"] || "bg-zinc-600";
+  return <span className={`w-1.5 h-1.5 rounded-full ${cls}`} />;
+}
+
+function engineStatusTitle(k: HeaderKPIs): string {
+  const s = k.engine_status ?? "unknown";
+  const secs = k.engine_seconds_since_heartbeat;
+  const age = secs != null ? ` · último heartbeat hace ${secs < 60 ? `${secs}s` : secs < 3600 ? `${Math.floor(secs / 60)}m` : `${Math.floor(secs / 3600)}h ${Math.floor((secs % 3600) / 60)}m`}` : "";
+  return `Engine: ${s.toUpperCase()}${age}`;
 }
 
 function KpiItem({ label, value, sub, tone = "neutral" }: { label: string; value: any; sub?: string; tone?: string }) {
