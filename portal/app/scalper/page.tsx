@@ -193,15 +193,7 @@ export default function ScalperPage() {
     <Shell current="scalper">
       <div className="space-y-6">
 
-        <div className="border border-amber-900/60 bg-amber-950/10 px-3 py-2 text-[11px] text-amber-200/80 flex items-start gap-2">
-          <AlertTriangle className="w-3.5 h-3.5 mt-0.5 flex-shrink-0 text-amber-400" />
-          <span>
-            <span className="uppercase tracking-wider text-amber-400">Experimental · paper</span> — Scalping en 1m paga 0.2% de comisión ida y vuelta por trade.
-            Las reglas cortan rápido las pérdidas, pero no garantizan ganancia: usalo para medir si la estrategia tiene ventaja antes de pensar en plata real.
-          </span>
-        </div>
-
-        {!engineUp && (
+{!engineUp && (
           <div className="border border-red-800 bg-red-950/20 px-3 py-2 text-[11px] text-red-300">
             El engine está <span className="uppercase">{engine}</span>. Una sesión solo arranca con el engine prendido; si el pedido queda más de 5 min sin atender se descarta.
           </div>

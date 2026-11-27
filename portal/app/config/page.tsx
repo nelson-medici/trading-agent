@@ -310,7 +310,23 @@ function FieldEditor({ field, value, onChange }: { field: string; value: any; on
     );
   }
 
-  // Fallback: JSON crudo
+  // Sub-objeto: recursar con editors individuales
+  if (typeof value === "object" && value !== null && !Array.isArray(value)) {
+    return (
+      <div className="border border-zinc-900 p-3 md:col-span-2">
+        <div className="text-[10px] uppercase tracking-wider text-zinc-500 mb-2">{humanizeField(field)}</div>
+        <div className="text-[9px] text-zinc-600 font-mono mb-2">{field}</div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-2 pl-2 border-l-2 border-zinc-800">
+          {Object.entries(value).map(([k, v]) => (
+            <FieldEditor key={k} field={k} value={v}
+              onChange={(newV) => onChange({ ...value, [k]: newV })} />
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  // Fallback: JSON crudo (tipos desconocidos)
   return (
     <div className="border border-zinc-900 p-3 md:col-span-2">
       <div className="text-[10px] uppercase tracking-wider text-zinc-500">{humanizeField(field)}</div>
