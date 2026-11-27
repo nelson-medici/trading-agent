@@ -14,10 +14,8 @@ const NAV: { id: View; label: string; icon: any; href: string }[] = [
   { id: "portfolio", label: "Portafolio", icon: Wallet, href: "/portfolio" },
   { id: "decisions", label: "Decisiones", icon: Brain, href: "/decisions" },
   { id: "charts", label: "Charts", icon: CandlestickChart, href: "/charts" },
-  { id: "strategies", label: "Strategies", icon: Zap, href: "/strategies" },
   { id: "scalper", label: "Scalper", icon: Timer, href: "/scalper" },
   { id: "history", label: "Histórico", icon: History, href: "/history" },
-  { id: "alerts", label: "Alertas", icon: Bell, href: "/alerts" },
 ];
 
 const VIEW_META: Record<View, { label: string }> = {
@@ -192,8 +190,8 @@ export default function Shell({ current, children }: { current: View; children: 
               </div>
             )}
 
-            {/* Campanita de notificaciones (a la derecha del usuario) */}
-            <div className="relative order-2">
+            {/* Campanita de notificaciones (a la derecha de config) */}
+            <div className="relative order-3">
               <button onClick={() => setNotifOpen(!notifOpen)}
                 title={unreadCount > 0 ? `${unreadCount} alerta${unreadCount === 1 ? "" : "s"} sin leer` : "Sin alertas nuevas"}
                 className={`relative flex items-center justify-center border p-1.5 transition-colors ${
@@ -246,7 +244,7 @@ export default function Shell({ current, children }: { current: View; children: 
             {/* CTA Configuración (solo ícono) — oculto en mobile, está en el drawer */}
             <Link href="/config" prefetch={false}
               title="Configuración del sistema"
-              className={`hidden md:flex order-3 items-center justify-center border p-1.5 transition-colors ${
+              className={`hidden md:flex order-2 items-center justify-center border p-1.5 transition-colors ${
                 current === "config"
                   ? "border-lime-500 text-lime-400 bg-lime-950/30"
                   : "border-zinc-800 text-zinc-400 hover:text-zinc-200 hover:border-zinc-600"
@@ -272,6 +270,11 @@ export default function Shell({ current, children }: { current: View; children: 
                       className={`px-3 py-2 text-xs flex items-center gap-2 border-b border-zinc-900 ${current === "control" ? "text-lime-400 bg-lime-950/20" : "text-zinc-300 hover:bg-zinc-900"}`}>
                       <Shield className="w-3 h-3" />
                       Control
+                    </Link>
+                    <Link href="/strategies" onClick={() => setMenuOpen(false)}
+                      className={`px-3 py-2 text-xs flex items-center gap-2 border-b border-zinc-900 ${current === "strategies" ? "text-lime-400 bg-lime-950/20" : "text-zinc-300 hover:bg-zinc-900"}`}>
+                      <Zap className="w-3 h-3" />
+                      Strategies
                     </Link>
                     <Link href="/config" onClick={() => setMenuOpen(false)}
                       className={`px-3 py-2 text-xs flex items-center gap-2 border-b border-zinc-900 ${current === "config" ? "text-lime-400 bg-lime-950/20" : "text-zinc-300 hover:bg-zinc-900"}`}>
@@ -322,10 +325,18 @@ export default function Shell({ current, children }: { current: View; children: 
                   {v.label}
                 </Link>
               ))}
-              {/* Config como opción extra en el drawer mobile */}
+              {/* Opciones extra en el drawer mobile */}
               <Link href="/control" onClick={() => setMobileNavOpen(false)}
                 className={`flex items-center gap-3 px-4 py-3 text-xs uppercase tracking-wider border-b border-zinc-900 ${current === "control" ? "text-lime-400 bg-lime-950/20" : "text-zinc-400"}`}>
                 <Shield className="w-4 h-4" /> Control
+              </Link>
+              <Link href="/strategies" onClick={() => setMobileNavOpen(false)}
+                className={`flex items-center gap-3 px-4 py-3 text-xs uppercase tracking-wider border-b border-zinc-900 ${current === "strategies" ? "text-lime-400 bg-lime-950/20" : "text-zinc-400"}`}>
+                <Zap className="w-4 h-4" /> Strategies
+              </Link>
+              <Link href="/alerts" onClick={() => setMobileNavOpen(false)}
+                className={`flex items-center gap-3 px-4 py-3 text-xs uppercase tracking-wider border-b border-zinc-900 ${current === "alerts" ? "text-violet-300 bg-violet-950/20" : "text-zinc-400"}`}>
+                <Bell className="w-4 h-4" /> Alertas
               </Link>
               <Link href="/config" onClick={() => setMobileNavOpen(false)}
                 className={`flex items-center gap-3 px-4 py-3 text-xs uppercase tracking-wider border-b border-zinc-900 ${current === "config" ? "text-lime-400 bg-lime-950/20" : "text-zinc-400"}`}>
