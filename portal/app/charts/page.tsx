@@ -101,8 +101,7 @@ export default function ChartsPage() {
 
   // Fetch de velas: 1m/5m directo de Binance API, el resto de Supabase
   async function fetchCandles(): Promise<Candle[]> {
-    const shortTF = ["1m", "5m"];
-    if (assetClass === "crypto" && shortTF.includes(timeframe)) {
+    if (assetClass === "crypto") {
       // Binance public API — no necesita auth
       const binanceSymbol = symbol.replace("/", "");
       const url = `https://api.binance.com/api/v3/klines?symbol=${binanceSymbol}&interval=${timeframe}&limit=${limit}`;
