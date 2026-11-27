@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Shell from "@/components/Shell";
 import CandlestickChart, { Candle, EmaOverlay, Marker, HorizontalLine } from "@/components/CandlestickChart";
 import { computeEMA, formatUsd } from "@/lib/utils";
+import { detectLevels, detectFVG, detectRejections, computeVolumeProfile, type PriceLevel, type FVGZone, type Rejection, type VolumeProfileBar } from "@/lib/patterns";
 
 const UNIVERSE_CRYPTO = ["BTC/USDT", "ETH/USDT", "SOL/USDT", "BNB/USDT", "AVAX/USDT", "LINK/USDT", "DOT/USDT", "MATIC/USDT", "ARB/USDT"];
 const UNIVERSE_EQUITIES = ["SPY", "QQQ", "AAPL", "MSFT", "NVDA", "TSLA", "META", "AMZN"];
@@ -59,6 +60,10 @@ export default function ChartsPage() {
   const [showTrades, setShowTrades] = useState(true);
   const [showSignals, setShowSignals] = useState(true);
   const [showPositionLevels, setShowPositionLevels] = useState(true);
+  const [showSR, setShowSR] = useState(false);
+  const [showFVG, setShowFVG] = useState(false);
+  const [showRejections, setShowRejections] = useState(false);
+  const [showVolProfile, setShowVolProfile] = useState(false);
   const [limit, setLimit] = useState(500);
 
   const [candles, setCandles] = useState<Candle[]>([]);
@@ -152,6 +157,27 @@ export default function ChartsPage() {
     return result;
   }, [candles, showEMA20, showEMA50, showEMA200]);
 
+  // Patrones detectados client-side (deben ir antes de markers que los usa)
+  const priceLevels: PriceLevel[] = useMemo(() => {
+    if (!showSR || candles.length < 20) return [];
+    return detectLevels(candles, 5, 0.005, 2, 8);
+  }, [candles, showSR]);
+
+  const fvgZones: FVGZone[] = useMemo(() => {
+    if (!showFVG || candles.length < 5) return [];
+    return detectFVG(candles, 0.002);
+  }, [candles, showFVG]);
+
+  const rejectionCandles: Rejection[] = useMemo(() => {
+    if (!showRejections || candles.length < 5 || priceLevels.length === 0) return [];
+    return detectRejections(candles, priceLevels, 2.0, 0.005);
+  }, [candles, priceLevels, showRejections]);
+
+  const volProfile: VolumeProfileBar[] = useMemo(() => {
+    if (!showVolProfile || candles.length < 10) return [];
+    return computeVolumeProfile(candles, 24);
+  }, [candles, showVolProfile]);
+
   // Markers: trades (entry + exit) y signals
   const markers: Marker[] = useMemo(() => {
     const m: Marker[] = [];
@@ -186,6 +212,19 @@ export default function ChartsPage() {
         }
       }
     }
+    // Rejection candles
+    if (showRejections) {
+      for (const r of rejectionCandles) {
+        m.push({
+          time: r.time,
+          position: r.kind === "bullish" ? "belowBar" : "aboveBar",
+          color: r.kind === "bullish" ? "#22d3ee" : "#f472b6",
+          shape: "circle",
+          text: `${r.kind === "bullish" ? "↑" : "↓"} wick ${r.wickRatio.toFixed(1)}×`,
+        });
+      }
+    }
+
     // Sort markers by time (lightweight-charts lo exige)
     m.sort((a, b) => {
       const ta = typeof a.time === "string" ? new Date(a.time).getTime() : a.time;
@@ -193,19 +232,47 @@ export default function ChartsPage() {
       return ta - tb;
     });
     return m;
-  }, [trades, signals, showTrades, showSignals]);
+  }, [trades, signals, showTrades, showSignals, showRejections, rejectionCandles]);
 
-  // Horizontal lines: stop + target de posiciones activas
+  // Horizontal lines: posiciones + soportes/resistencias + FVGs + Volume Profile POC
   const horizontalLines: HorizontalLine[] = useMemo(() => {
-    if (!showPositionLevels) return [];
     const lines: HorizontalLine[] = [];
-    for (const p of positions) {
-      lines.push({ price: p.entry_price, color: "#a1a1aa", title: `entry [${p.pool}]` });
-      lines.push({ price: p.stop_price, color: "#ef4444", title: "stop" });
-      lines.push({ price: p.target_price, color: "#10b981", title: "target" });
+
+    if (showPositionLevels) {
+      for (const p of positions) {
+        lines.push({ price: p.entry_price, color: "#a1a1aa", title: `entry [${p.pool}]` });
+        lines.push({ price: p.stop_price, color: "#ef4444", title: "stop" });
+        lines.push({ price: p.target_price, color: "#10b981", title: "target" });
+      }
     }
+
+    // Soportes y resistencias
+    for (const lv of priceLevels) {
+      lines.push({
+        price: lv.price,
+        color: lv.kind === "support" ? "#22d3ee" : "#f472b6",
+        title: `${lv.kind === "support" ? "S" : "R"} (${lv.touches}t)`,
+        lineStyle: 2, // Dashed
+      });
+    }
+
+    // FVG zones como pares de líneas (top y bottom del gap)
+    for (const fvg of fvgZones) {
+      const color = fvg.kind === "bullish" ? "#22d3ee40" : "#f472b640";
+      lines.push({ price: fvg.top, color, title: `FVG ${fvg.kind === "bullish" ? "↑" : "↓"} top`, lineStyle: 1 });
+      lines.push({ price: fvg.bottom, color, title: `FVG bottom`, lineStyle: 1 });
+    }
+
+    // Volume Profile POC
+    if (showVolProfile) {
+      const poc = volProfile.find((b) => b.isPOC);
+      if (poc) {
+        lines.push({ price: poc.priceLevel, color: "#fbbf24", title: `POC (${poc.pct.toFixed(0)}%)`, lineStyle: 0 });
+      }
+    }
+
     return lines;
-  }, [positions, showPositionLevels]);
+  }, [positions, showPositionLevels, priceLevels, fvgZones, volProfile, showVolProfile]);
 
   if (loading) return null;
 
@@ -265,6 +332,11 @@ export default function ChartsPage() {
           <Toggle label="Trades" active={showTrades} onToggle={() => setShowTrades(!showTrades)} color="#84cc16" />
           <Toggle label="Signals" active={showSignals} onToggle={() => setShowSignals(!showSignals)} color="#06b6d4" />
           <Toggle label="Position levels" active={showPositionLevels} onToggle={() => setShowPositionLevels(!showPositionLevels)} color="#a1a1aa" />
+          <span className="text-zinc-700">|</span>
+          <Toggle label="S/R" active={showSR} onToggle={() => setShowSR(!showSR)} color="#22d3ee" />
+          <Toggle label="FVG" active={showFVG} onToggle={() => setShowFVG(!showFVG)} color="#22d3ee" />
+          <Toggle label="Rechazo" active={showRejections} onToggle={() => setShowRejections(!showRejections)} color="#f472b6" />
+          <Toggle label="Vol Profile" active={showVolProfile} onToggle={() => setShowVolProfile(!showVolProfile)} color="#fbbf24" />
         </div>
 
         {/* Chart */}
@@ -283,6 +355,32 @@ export default function ChartsPage() {
             />
           )}
         </div>
+
+        {/* Volume Profile panel */}
+        {showVolProfile && volProfile.length > 0 && (
+          <div className="border border-zinc-800 bg-zinc-950 p-3">
+            <div className="text-[10px] uppercase tracking-wider text-zinc-500 mb-2">Volume Profile</div>
+            <div className="flex items-end gap-px h-20">
+              {volProfile.map((bar, i) => {
+                const maxPct = Math.max(...volProfile.map((b) => b.pct));
+                const h = maxPct > 0 ? (bar.pct / maxPct) * 100 : 0;
+                return (
+                  <div key={i} className="flex-1 flex flex-col items-center justify-end" title={`$${bar.priceLevel.toFixed(2)} · ${bar.pct.toFixed(1)}%`}>
+                    <div
+                      className={`w-full ${bar.isPOC ? "bg-amber-400" : "bg-zinc-600"}`}
+                      style={{ height: `${h}%`, minHeight: bar.pct > 0 ? "1px" : 0 }}
+                    />
+                  </div>
+                );
+              })}
+            </div>
+            <div className="flex justify-between text-[9px] text-zinc-600 mt-1">
+              <span>${volProfile[0]?.priceLevel.toFixed(2)}</span>
+              <span className="text-amber-400">POC ${volProfile.find((b) => b.isPOC)?.priceLevel.toFixed(2)}</span>
+              <span>${volProfile[volProfile.length - 1]?.priceLevel.toFixed(2)}</span>
+            </div>
+          </div>
+        )}
 
         {/* Info extras */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
