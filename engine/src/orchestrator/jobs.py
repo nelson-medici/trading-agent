@@ -58,13 +58,15 @@ async def ingest_market_data() -> None:
         pool_cfg = cfg.pool(pool_name)
         symbols = pool_cfg.get("universe", [])
         tf = pool_cfg.get("timeframe", "1h")
+        additional_tfs = pool_cfg.get("additional_timeframes", [])
         asset_class = pool_cfg.get("asset_class", "crypto")
+        all_tfs = {tf, *additional_tfs}
         if asset_class == "equities":
             equities_symbols.update(symbols)
-            timeframes_equities.add(tf)
+            timeframes_equities.update(all_tfs)
         else:
             crypto_symbols.update(symbols)
-            timeframes_crypto.add(tf)
+            timeframes_crypto.update(all_tfs)
 
     # Crypto
     if crypto_symbols:
