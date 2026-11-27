@@ -44,6 +44,7 @@ out/
 *.csv
 !supabase/seed/*.csv
 data/
+!engine/src/data/
 logs/
 
 # Local scratch
