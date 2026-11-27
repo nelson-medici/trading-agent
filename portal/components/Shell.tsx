@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase";
-import { Activity, Wallet, Brain, Settings as SettingsIcon, Shield, Terminal, LogOut, User, Zap, CandlestickChart, History } from "lucide-react";
+import { Activity, Wallet, Brain, Settings as SettingsIcon, Shield, Terminal, LogOut, User, Zap, CandlestickChart, History, Bell, AlertTriangle, AlertOctagon, Info } from "lucide-react";
 
 type View = "overview" | "portfolio" | "decisions" | "charts" | "strategies" | "history" | "config" | "control";
 
@@ -39,11 +39,24 @@ interface HeaderKPIs {
   engine_last_heartbeat: string | null;
 }
 
+interface Alert {
+  id: string;
+  severity: string;
+  category: string;
+  title: string;
+  detail: string | null;
+  pool: string | null;
+  acknowledged: boolean;
+  created_at: string;
+}
+
 export default function Shell({ current, children }: { current: View; children: React.ReactNode }) {
   const [now, setNow] = useState(new Date());
   const [email, setEmail] = useState<string>("");
   const [menuOpen, setMenuOpen] = useState(false);
+  const [notifOpen, setNotifOpen] = useState(false);
   const [kpis, setKpis] = useState<HeaderKPIs | null>(null);
+  const [alerts, setAlerts] = useState<Alert[]>([]);
   const router = useRouter();
   const supabase = createClient();
 
@@ -70,10 +83,45 @@ export default function Shell({ current, children }: { current: View; children: 
     return () => clearInterval(iv);
   }, [supabase]);
 
+  // Carga de alertas (unread + últimas por si no hay)
+  useEffect(() => {
+    async function loadAlerts() {
+      const { data } = await supabase
+        .from("alerts")
+        .select("id, severity, category, title, detail, pool, acknowledged, created_at")
+        .order("created_at", { ascending: false })
+        .limit(20);
+      if (data) setAlerts(data as Alert[]);
+    }
+    loadAlerts();
+    const iv = setInterval(loadAlerts, 15000);
+    return () => clearInterval(iv);
+  }, [supabase]);
+
   async function handleLogout() {
     await supabase.auth.signOut();
     router.push("/login");
   }
+
+  async function ackAlert(id: string) {
+    await supabase.from("alerts").update({ acknowledged: true }).eq("id", id);
+    setAlerts((prev) => prev.map((a) => a.id === id ? { ...a, acknowledged: true } : a));
+  }
+
+  async function ackAll() {
+    const unreadIds = alerts.filter((a) => !a.acknowledged).map((a) => a.id);
+    if (unreadIds.length === 0) return;
+    await supabase.from("alerts").update({ acknowledged: true }).in("id", unreadIds);
+    setAlerts((prev) => prev.map((a) => unreadIds.includes(a.id) ? { ...a, acknowledged: true } : a));
+  }
+
+  const unreadAlerts = alerts.filter((a) => !a.acknowledged);
+  const unreadCount = unreadAlerts.length;
+  const highestSeverity = unreadAlerts.reduce((max, a) => {
+    const rank = { critical: 3, warn: 2, info: 1 }[a.severity] || 0;
+    const maxRank = { critical: 3, warn: 2, info: 1 }[max] || 0;
+    return rank > maxRank ? a.severity : max;
+  }, "info");
 
   const currentMeta = VIEW_META[current];
 
@@ -120,6 +168,63 @@ export default function Shell({ current, children }: { current: View; children: 
                   title={kpis.engine_status === "healthy" ? "Engine healthy" : "Engine stale"} />
               </div>
             )}
+
+            {/* Campanita de notificaciones */}
+            <div className="relative">
+              <button onClick={() => setNotifOpen(!notifOpen)}
+                title={unreadCount > 0 ? `${unreadCount} alerta${unreadCount === 1 ? "" : "s"} sin leer` : "Sin alertas nuevas"}
+                className={`relative flex items-center justify-center border p-1.5 transition-colors ${
+                  unreadCount > 0
+                    ? highestSeverity === "critical"
+                      ? "border-red-500 text-red-400 bg-red-950/30 animate-pulse"
+                      : highestSeverity === "warn"
+                        ? "border-amber-500 text-amber-400 bg-amber-950/30"
+                        : "border-lime-700 text-lime-400 bg-lime-950/20"
+                    : "border-zinc-800 text-zinc-400 hover:text-zinc-200 hover:border-zinc-600"
+                }`}>
+                <Bell className="w-3.5 h-3.5" />
+                {unreadCount > 0 && (
+                  <span className={`absolute -top-1.5 -right-1.5 min-w-[16px] h-4 px-1 text-[9px] font-medium tabular-nums flex items-center justify-center rounded-full border ${
+                    highestSeverity === "critical" ? "bg-red-500 text-black border-red-700"
+                      : highestSeverity === "warn" ? "bg-amber-500 text-black border-amber-700"
+                      : "bg-lime-500 text-black border-lime-700"
+                  }`}>{unreadCount > 99 ? "99+" : unreadCount}</span>
+                )}
+              </button>
+
+              {notifOpen && (
+                <>
+                  <div className="fixed inset-0 z-40" onClick={() => setNotifOpen(false)} />
+                  <div className="absolute right-0 top-full mt-1 bg-zinc-950 border border-zinc-800 w-[380px] max-h-[520px] overflow-hidden flex flex-col z-50 shadow-2xl">
+                    <div className="px-3 py-2 border-b border-zinc-900 flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Bell className="w-3 h-3 text-zinc-500" />
+                        <span className="text-[11px] uppercase tracking-wider text-zinc-400">Alertas</span>
+                        {unreadCount > 0 && <span className="text-[10px] text-zinc-600">({unreadCount} sin leer)</span>}
+                      </div>
+                      {unreadCount > 0 && (
+                        <button onClick={ackAll} className="text-[10px] uppercase tracking-wider text-zinc-500 hover:text-lime-400">
+                          Marcar todas
+                        </button>
+                      )}
+                    </div>
+                    <div className="overflow-y-auto">
+                      {alerts.length === 0 ? (
+                        <div className="p-6 text-center text-[11px] text-zinc-600">Sin alertas aún.</div>
+                      ) : (
+                        alerts.map((a) => <AlertRow key={a.id} alert={a} onAck={() => ackAlert(a.id)} />)
+                      )}
+                    </div>
+                    <div className="px-3 py-2 border-t border-zinc-900 flex items-center justify-between text-[10px]">
+                      <Link href="/control" onClick={() => setNotifOpen(false)} className="text-lime-400 hover:underline">
+                        Ver todas en Control →
+                      </Link>
+                      <span className="text-zinc-600">refresh cada 15s</span>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
 
             {/* CTA Configuración (solo ícono) */}
             <Link href="/config"
@@ -188,6 +293,51 @@ export default function Shell({ current, children }: { current: View; children: 
         <span>quant.agent · disciplined quantitative system</span>
         <span>v0.1.0</span>
       </footer>
+    </div>
+  );
+}
+
+function AlertRow({ alert, onAck }: { alert: Alert; onAck: () => void }) {
+  const severityIcon = {
+    critical: <AlertOctagon className="w-3 h-3 text-red-400" />,
+    warn: <AlertTriangle className="w-3 h-3 text-amber-400" />,
+    info: <Info className="w-3 h-3 text-zinc-400" />,
+  }[alert.severity] || <Info className="w-3 h-3 text-zinc-400" />;
+
+  const severityColor = {
+    critical: "border-l-red-500",
+    warn: "border-l-amber-500",
+    info: "border-l-zinc-700",
+  }[alert.severity] || "border-l-zinc-700";
+
+  const ts = new Date(alert.created_at);
+  const now = new Date();
+  const diffMin = Math.floor((now.getTime() - ts.getTime()) / 60000);
+  const relTime = diffMin < 1 ? "ahora" : diffMin < 60 ? `${diffMin}m` : diffMin < 1440 ? `${Math.floor(diffMin / 60)}h` : `${Math.floor(diffMin / 1440)}d`;
+
+  return (
+    <div className={`px-3 py-2 border-b border-zinc-900 border-l-2 ${severityColor} ${alert.acknowledged ? "opacity-50" : ""}`}>
+      <div className="flex items-start gap-2">
+        <div className="pt-0.5">{severityIcon}</div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-baseline justify-between gap-2">
+            <div className="flex items-center gap-1.5 text-[11px]">
+              {alert.pool && <span className="uppercase text-[9px] tracking-wider text-zinc-600">[{alert.pool}]</span>}
+              <span className="text-zinc-200 font-medium truncate">{alert.title}</span>
+            </div>
+            <span className="text-[9px] text-zinc-600 tabular-nums whitespace-nowrap">{relTime}</span>
+          </div>
+          {alert.detail && (
+            <div className="text-[10px] text-zinc-500 mt-0.5 leading-snug">{alert.detail}</div>
+          )}
+          <div className="flex items-center gap-2 mt-1">
+            <span className="text-[9px] uppercase tracking-wider text-zinc-600">{alert.category}</span>
+            {!alert.acknowledged && (
+              <button onClick={onAck} className="ml-auto text-[9px] uppercase tracking-wider text-zinc-500 hover:text-lime-400">ack</button>
+            )}
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
