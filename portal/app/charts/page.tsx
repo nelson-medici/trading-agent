@@ -308,7 +308,6 @@ export default function ChartsPage() {
           color: cp.projectionLine.color,
           lineWidth: cp.projectionLine.lineWidth ?? 2,
           lineStyle: 1 as any,
-          title: `→ $${cp.target?.toFixed(0) ?? ""}`,
         });
       }
     }
@@ -332,51 +331,36 @@ export default function ChartsPage() {
 
       for (const cp of patternOverlay) {
         const baseColor = overlayColors[cp.nameEn] ?? (cp.bias === "bullish" ? "#00e676" : "#ff1744");
+        // Pattern trendlines — NO titles on axis
         for (const pl of cp.lines) {
           lines.push({
             points: pl.points,
             color: baseColor,
-            lineWidth: (pl.lineWidth ?? 1) + 1, // más gruesas que las normales
+            lineWidth: (pl.lineWidth ?? 1) + 1,
             lineStyle: pl.style === "dotted" ? 1 as any : pl.style === "dashed" ? 2 as any : 0 as any,
-            title: cp.name,
           });
         }
-        // Projection
+        // Projection line
         if (cp.projectionLine) {
           lines.push({
             points: cp.projectionLine.points,
             color: baseColor + "80",
             lineWidth: 2,
             lineStyle: 1 as any,
-            title: `${cp.name} → $${cp.target?.toFixed(0) ?? ""}`,
           });
         }
-        // Neckline
-        if (cp.neckline && candles.length > 0) {
-          const firstTime = candles[Math.max(0, candles.length - 50)].time;
-          const lastTime = candles[candles.length - 1].time;
+        // Neckline — extend only within the pattern's time range
+        if (cp.neckline && cp.lines.length > 0) {
+          const firstPt = cp.lines[0].points[0];
+          const lastPt = cp.lines[cp.lines.length - 1].points[cp.lines[cp.lines.length - 1].points.length - 1];
           lines.push({
             points: [
-              { time: firstTime, value: cp.neckline },
-              { time: lastTime, value: cp.neckline },
+              { time: firstPt.time, value: cp.neckline },
+              { time: lastPt.time, value: cp.neckline },
             ],
             color: "#ffd740",
             lineWidth: 1,
             lineStyle: 2 as any,
-            title: `Neckline $${cp.neckline.toFixed(0)}`,
-          });
-        }
-        // Entry / Stop / Target horizontal lines
-        if (cp.entry) {
-          lines.push({
-            points: [
-              { time: candles[candles.length - 1]?.time ?? 0, value: cp.entry },
-              { time: candles[candles.length - 1]?.time ?? 0, value: cp.entry },
-            ],
-            color: "#ffffff40",
-            lineWidth: 1,
-            lineStyle: 2 as any,
-            title: `Entry $${cp.entry.toFixed(0)}`,
           });
         }
       }

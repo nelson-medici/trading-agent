@@ -212,7 +212,7 @@ export default function CandlestickChartComponent({ candles, emas = [], markers 
         priceLineVisible: false,
         lastValueVisible: false,
         crosshairMarkerVisible: false,
-        title: tl.title ?? "",
+        title: "", // no title on axis — too much clutter
       });
       series.setData(
         tl.points.map((p) => ({ time: toTime(p.time), value: p.value }))
@@ -232,7 +232,7 @@ export default function CandlestickChartComponent({ candles, emas = [], markers 
         color: line.color,
         lineWidth: 1,
         lineStyle: line.lineStyle ?? LineStyle.Dashed,
-        axisLabelVisible: true,
+        axisLabelVisible: false,
         title: line.title,
       });
       priceLinesRef.current.push(pl);

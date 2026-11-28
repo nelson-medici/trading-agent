@@ -236,13 +236,14 @@ function detectFlag(candles: Candle[], pivots: { highs: Pivot[]; lows: Pivot[] }
 // 2. DOBLE TECHO / DOBLE PISO
 // ------------------------------------------------------------------
 
-function detectDoubleTopBottom(candles: Candle[], pivots: { highs: Pivot[]; lows: Pivot[] }): ChartPattern | null {
+function detectDoubleTopBottom(candles: Candle[], pivots: { highs: Pivot[]; lows: Pivot[] }): ChartPattern[] {
   const n = candles.length;
   const price = candles[n - 1].close;
+  const results: ChartPattern[] = [];
 
   // Double Top: dos máximos similares con valle entre ellos
   if (pivots.highs.length >= 2) {
-    const h = pivots.highs.slice(-4); // últimos 4 pivot highs
+    const h = pivots.highs; // scan ALL pivots
     for (let i = 0; i < h.length - 1; i++) {
       const top1 = h[i];
       const top2 = h[i + 1];
@@ -262,7 +263,7 @@ function detectDoubleTopBottom(candles: Candle[], pivots: { highs: Pivot[]; lows
       const confirmed = price < neckline;
       const target = neckline - height;
 
-      return {
+      results.push({
         name: "Doble Techo",
         nameEn: "Double Top",
         type: "reversal",
@@ -274,34 +275,32 @@ function detectDoubleTopBottom(candles: Candle[], pivots: { highs: Pivot[]; lows
         target,
         neckline,
         lines: [
-          // Línea de resistencia (tops)
           { points: [
             { time: top1.time, value: top1.price },
             { time: top2.time, value: top2.price },
           ], color: "#ef4444", lineWidth: 2 },
-          // Neckline
           { points: [
             { time: top1.time, value: neckline },
-            { time: candles[n - 1].time, value: neckline },
+            { time: top2.time, value: neckline },
           ], color: "#f59e0b", lineWidth: 1, style: "dashed" },
         ],
         projectionLine: confirmed ? {
           points: [
-            { time: candles[n - 1].time, value: neckline },
-            { time: candles[n - 1].time, value: target },
+            { time: top2.time, value: neckline },
+            { time: candles[Math.min(top2.idx + 20, n - 1)].time, value: target },
           ],
           color: "#ef444480",
           lineWidth: 2,
           style: "dotted",
         } : undefined,
-        description: `Techos en ~$${((top1.price + top2.price) / 2).toFixed(2)}. Neckline: $${neckline.toFixed(2)}. Target: $${target.toFixed(2)}`,
-      };
+        description: `Techos en ~$${((top1.price + top2.price) / 2).toFixed(2)}. Neckline: $${neckline.toFixed(2)}`,
+      });
     }
   }
 
   // Double Bottom: dos mínimos similares con pico entre ellos
   if (pivots.lows.length >= 2) {
-    const l = pivots.lows.slice(-4);
+    const l = pivots.lows;
     for (let i = 0; i < l.length - 1; i++) {
       const bot1 = l[i];
       const bot2 = l[i + 1];
@@ -320,7 +319,7 @@ function detectDoubleTopBottom(candles: Candle[], pivots: { highs: Pivot[]; lows
       const confirmed = price > neckline;
       const target = neckline + height;
 
-      return {
+      results.push({
         name: "Doble Piso",
         nameEn: "Double Bottom",
         type: "reversal",
@@ -338,24 +337,24 @@ function detectDoubleTopBottom(candles: Candle[], pivots: { highs: Pivot[]; lows
           ], color: "#10b981", lineWidth: 2 },
           { points: [
             { time: bot1.time, value: neckline },
-            { time: candles[n - 1].time, value: neckline },
+            { time: bot2.time, value: neckline },
           ], color: "#f59e0b", lineWidth: 1, style: "dashed" },
         ],
         projectionLine: confirmed ? {
           points: [
-            { time: candles[n - 1].time, value: neckline },
-            { time: candles[n - 1].time, value: target },
+            { time: bot2.time, value: neckline },
+            { time: candles[Math.min(bot2.idx + 20, n - 1)].time, value: target },
           ],
           color: "#10b98180",
           lineWidth: 2,
           style: "dotted",
         } : undefined,
-        description: `Pisos en ~$${((bot1.price + bot2.price) / 2).toFixed(2)}. Neckline: $${neckline.toFixed(2)}. Target: $${target.toFixed(2)}`,
-      };
+        description: `Pisos en ~$${((bot1.price + bot2.price) / 2).toFixed(2)}. Neckline: $${neckline.toFixed(2)}`,
+      });
     }
   }
 
-  return null;
+  return results;
 }
 
 // ------------------------------------------------------------------
@@ -458,13 +457,14 @@ function detectWedge(candles: Candle[], pivots: { highs: Pivot[]; lows: Pivot[] 
 // 4. HEAD & SHOULDERS / INVERSE
 // ------------------------------------------------------------------
 
-function detectHeadShoulders(candles: Candle[], pivots: { highs: Pivot[]; lows: Pivot[] }): ChartPattern | null {
+function detectHeadShoulders(candles: Candle[], pivots: { highs: Pivot[]; lows: Pivot[] }): ChartPattern[] {
   const n = candles.length;
   const price = candles[n - 1].close;
+  const results: ChartPattern[] = [];
 
   // H&S: tres picos, el del medio más alto
   if (pivots.highs.length >= 3) {
-    const h = pivots.highs.slice(-5);
+    const h = pivots.highs;
     for (let i = 0; i <= h.length - 3; i++) {
       const ls = h[i];     // left shoulder
       const head = h[i + 1]; // head
@@ -492,7 +492,7 @@ function detectHeadShoulders(candles: Candle[], pivots: { highs: Pivot[]; lows: 
       const confirmed = price < neckline;
       const target = neckline - height;
 
-      return {
+      results.push({
         name: "Hombro-Cabeza-Hombro",
         nameEn: "Head & Shoulders",
         type: "reversal",
@@ -504,35 +504,33 @@ function detectHeadShoulders(candles: Candle[], pivots: { highs: Pivot[]; lows: 
         target,
         neckline,
         lines: [
-          // Pattern outline
           { points: [
             { time: ls.time, value: ls.price },
             { time: head.time, value: head.price },
             { time: rs.time, value: rs.price },
           ], color: "#ef4444", lineWidth: 2 },
-          // Neckline
           { points: [
             { time: ls.time, value: neckline },
-            { time: candles[n - 1].time, value: neckline },
+            { time: rs.time, value: neckline },
           ], color: "#f59e0b", lineWidth: 1, style: "dashed" },
         ],
         projectionLine: {
           points: [
-            { time: candles[n - 1].time, value: neckline },
-            { time: candles[n - 1].time, value: target },
+            { time: rs.time, value: neckline },
+            { time: candles[Math.min(rs.idx + 15, n - 1)].time, value: target },
           ],
           color: "#ef444480",
           lineWidth: 2,
           style: "dotted",
         },
-        description: `Cabeza: $${head.price.toFixed(2)}. Hombros: ~$${((ls.price + rs.price) / 2).toFixed(2)}. Neckline: $${neckline.toFixed(2)}. Target: $${target.toFixed(2)}`,
-      };
+        description: `Cabeza: $${head.price.toFixed(2)}. Hombros: ~$${((ls.price + rs.price) / 2).toFixed(2)}`,
+      });
     }
   }
 
   // Inverse H&S: tres valles, el del medio más bajo
   if (pivots.lows.length >= 3) {
-    const l = pivots.lows.slice(-5);
+    const l = pivots.lows;
     for (let i = 0; i <= l.length - 3; i++) {
       const ls = l[i];
       const head = l[i + 1];
@@ -556,7 +554,7 @@ function detectHeadShoulders(candles: Candle[], pivots: { highs: Pivot[]; lows: 
       const confirmed = price > neckline;
       const target = neckline + height;
 
-      return {
+      results.push({
         name: "HCH Invertido",
         nameEn: "Inverse Head & Shoulders",
         type: "reversal",
@@ -575,24 +573,24 @@ function detectHeadShoulders(candles: Candle[], pivots: { highs: Pivot[]; lows: 
           ], color: "#10b981", lineWidth: 2 },
           { points: [
             { time: ls.time, value: neckline },
-            { time: candles[n - 1].time, value: neckline },
+            { time: rs.time, value: neckline },
           ], color: "#f59e0b", lineWidth: 1, style: "dashed" },
         ],
         projectionLine: {
           points: [
-            { time: candles[n - 1].time, value: neckline },
-            { time: candles[n - 1].time, value: target },
+            { time: rs.time, value: neckline },
+            { time: candles[Math.min(rs.idx + 15, n - 1)].time, value: target },
           ],
           color: "#10b98180",
           lineWidth: 2,
           style: "dotted",
         },
-        description: `Cabeza: $${head.price.toFixed(2)}. Hombros: ~$${((ls.price + rs.price) / 2).toFixed(2)}. Neckline: $${neckline.toFixed(2)}. Target: $${target.toFixed(2)}`,
-      };
+        description: `Cabeza: $${head.price.toFixed(2)}. Hombros: ~$${((ls.price + rs.price) / 2).toFixed(2)}`,
+      });
     }
   }
 
-  return null;
+  return results;
 }
 
 // ------------------------------------------------------------------
@@ -713,12 +711,9 @@ export function detectChartPatterns(candles: Candle[]): ChartPattern[] {
   const pivots = findPivots(candles, 3);
   const patterns: ChartPattern[] = [];
 
-  // Ejecutar cada detector — priorizar por confiabilidad
-  const hs = detectHeadShoulders(candles, pivots);
-  if (hs) patterns.push(hs);
-
-  const dbl = detectDoubleTopBottom(candles, pivots);
-  if (dbl) patterns.push(dbl);
+  // Scan ALL pivots for patterns across the whole chart
+  patterns.push(...detectHeadShoulders(candles, pivots));
+  patterns.push(...detectDoubleTopBottom(candles, pivots));
 
   const flag = detectFlag(candles, pivots);
   if (flag) patterns.push(flag);
@@ -727,10 +722,11 @@ export function detectChartPatterns(candles: Candle[]): ChartPattern[] {
   if (wedge) patterns.push(wedge);
 
   const rect = detectRectangle(candles, pivots);
-  if (rect && patterns.length === 0) patterns.push(rect); // solo si no hay otro patrón más fuerte
+  if (rect && patterns.length === 0) patterns.push(rect);
 
-  // Ordenar por confianza
+  // Dedup: si hay patrones en la misma zona de precio, quedarse con el de mayor confianza
   patterns.sort((a, b) => b.confidence - a.confidence);
 
-  return patterns;
+  // Limitar a 6 patrones max para no saturar
+  return patterns.slice(0, 6);
 }
