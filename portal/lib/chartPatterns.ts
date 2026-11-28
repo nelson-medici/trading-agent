@@ -361,96 +361,101 @@ function detectDoubleTopBottom(candles: Candle[], pivots: { highs: Pivot[]; lows
 // 3. CUÑA (Wedge) — Rising / Falling
 // ------------------------------------------------------------------
 
-function detectWedge(candles: Candle[], pivots: { highs: Pivot[]; lows: Pivot[] }): ChartPattern | null {
-  if (pivots.highs.length < 2 || pivots.lows.length < 2) return null;
+function detectWedge(candles: Candle[], pivots: { highs: Pivot[]; lows: Pivot[] }): ChartPattern[] {
+  const results: ChartPattern[] = [];
+  if (pivots.highs.length < 3 || pivots.lows.length < 3) return results;
   const n = candles.length;
   const price = candles[n - 1].close;
 
-  const ph = pivots.highs.slice(-3);
-  const pl = pivots.lows.slice(-3);
-  if (ph.length < 2 || pl.length < 2) return null;
+  // Scan overlapping pairs of pivots across the chart
+  for (let hi = 0; hi < pivots.highs.length - 1 && results.length < 2; hi++) {
+    for (let li = 0; li < pivots.lows.length - 1 && results.length < 2; li++) {
+      const h1 = pivots.highs[hi];
+      const h2 = pivots.highs[hi + 1];
+      const l1 = pivots.lows[li];
+      const l2 = pivots.lows[li + 1];
 
-  const highSlope = slope(ph[ph.length - 2], ph[ph.length - 1]);
-  const lowSlope = slope(pl[pl.length - 2], pl[pl.length - 1]);
+      // Pivots should overlap in time
+      const startIdx = Math.min(h1.idx, l1.idx);
+      const endIdx = Math.max(h2.idx, l2.idx);
+      if (endIdx - startIdx < 8) continue; // too short
+      if (endIdx - startIdx > candles.length * 0.7) continue; // too long
 
-  // Rising Wedge: ambas pendientes positivas pero convergen (bearish)
-  if (highSlope > 0 && lowSlope > 0 && lowSlope > highSlope * 0.3) {
-    // Verificar convergencia
-    const highRange = ph[ph.length - 1].price - ph[ph.length - 2].price;
-    const lowRange = pl[pl.length - 1].price - pl[pl.length - 2].price;
-    if (lowRange > highRange) { // lows subiendo más rápido = convergencia
-      const breakoutLevel = pl[pl.length - 1].price;
-      const height = ph[ph.length - 1].price - pl[pl.length - 1].price;
-      const target = breakoutLevel - height;
-      const confirmed = price < breakoutLevel;
+      const hSlope = slope(h1, h2);
+      const lSlope = slope(l1, l2);
 
-      return {
-        name: "Cuña Ascendente",
-        nameEn: "Rising Wedge",
-        type: "reversal",
-        bias: "bearish",
-        status: confirmed ? "confirmed" : "forming",
-        confidence: confirmed ? 70 : 50,
-        entry: breakoutLevel,
-        stop: ph[ph.length - 1].price,
-        target,
-        lines: [
-          { points: ph.slice(-2).map((p) => ({ time: p.time, value: p.price })), color: "#ef4444", lineWidth: 2 },
-          { points: pl.slice(-2).map((p) => ({ time: p.time, value: p.price })), color: "#ef4444", lineWidth: 2 },
-        ],
-        projectionLine: {
-          points: [
-            { time: candles[n - 1].time, value: breakoutLevel },
-            { time: candles[n - 1].time, value: target },
-          ],
-          color: "#ef444460",
-          lineWidth: 2,
-          style: "dotted",
-        },
-        description: `Máximos y mínimos crecientes convergentes. Breakout bajista esperado por debajo de $${breakoutLevel.toFixed(2)}`,
-      };
+      // Rising Wedge: both slopes up, converging
+      if (hSlope > 0 && lSlope > 0) {
+        const hRange = h2.price - h1.price;
+        const lRange = l2.price - l1.price;
+        if (lRange > hRange * 1.2) { // lows rising faster = converging
+          const breakoutLevel = l2.price;
+          const height = h2.price - l2.price;
+          if (height / l2.price * 100 < 1.5) continue;
+          const target = breakoutLevel - height;
+          const confirmed = price < breakoutLevel;
+
+          results.push({
+            name: "Cuña Ascendente",
+            nameEn: "Rising Wedge",
+            type: "reversal",
+            bias: "bearish",
+            status: confirmed ? "confirmed" : "forming",
+            confidence: confirmed ? 70 : 50,
+            entry: breakoutLevel,
+            stop: h2.price,
+            target,
+            lines: [
+              { points: [{ time: h1.time, value: h1.price }, { time: h2.time, value: h2.price }], color: "#ef4444", lineWidth: 2 },
+              { points: [{ time: l1.time, value: l1.price }, { time: l2.time, value: l2.price }], color: "#ef4444", lineWidth: 2 },
+            ],
+            projectionLine: {
+              points: [{ time: h2.time, value: breakoutLevel }, { time: candles[Math.min(h2.idx + 15, n - 1)].time, value: target }],
+              color: "#ef444460", lineWidth: 2, style: "dotted",
+            },
+            description: `Cuña ascendente convergente. Breakout bajista por debajo de $${breakoutLevel.toFixed(2)}`,
+          });
+          continue;
+        }
+      }
+
+      // Falling Wedge: both slopes down, converging
+      if (hSlope < 0 && lSlope < 0) {
+        const hRange = Math.abs(h2.price - h1.price);
+        const lRange = Math.abs(l2.price - l1.price);
+        if (hRange > lRange * 1.2) { // highs falling faster = converging
+          const breakoutLevel = h2.price;
+          const height = h2.price - l2.price;
+          if (height / h2.price * 100 < 1.5) continue;
+          const target = breakoutLevel + height;
+          const confirmed = price > breakoutLevel;
+
+          results.push({
+            name: "Cuña Descendente",
+            nameEn: "Falling Wedge",
+            type: "reversal",
+            bias: "bullish",
+            status: confirmed ? "confirmed" : "forming",
+            confidence: confirmed ? 70 : 50,
+            entry: breakoutLevel,
+            stop: l2.price,
+            target,
+            lines: [
+              { points: [{ time: h1.time, value: h1.price }, { time: h2.time, value: h2.price }], color: "#10b981", lineWidth: 2 },
+              { points: [{ time: l1.time, value: l1.price }, { time: l2.time, value: l2.price }], color: "#10b981", lineWidth: 2 },
+            ],
+            projectionLine: {
+              points: [{ time: h2.time, value: breakoutLevel }, { time: candles[Math.min(h2.idx + 15, n - 1)].time, value: target }],
+              color: "#10b98160", lineWidth: 2, style: "dotted",
+            },
+            description: `Cuña descendente convergente. Breakout alcista por encima de $${breakoutLevel.toFixed(2)}`,
+          });
+        }
+      }
     }
   }
 
-  // Falling Wedge: ambas pendientes negativas pero convergen (bullish)
-  if (highSlope < 0 && lowSlope < 0 && highSlope < lowSlope * 0.3) {
-    const highRange = Math.abs(ph[ph.length - 1].price - ph[ph.length - 2].price);
-    const lowRange = Math.abs(pl[pl.length - 1].price - pl[pl.length - 2].price);
-    if (highRange > lowRange) { // highs bajando más rápido = convergencia
-      const breakoutLevel = ph[ph.length - 1].price;
-      const height = ph[ph.length - 1].price - pl[pl.length - 1].price;
-      const target = breakoutLevel + height;
-      const confirmed = price > breakoutLevel;
-
-      return {
-        name: "Cuña Descendente",
-        nameEn: "Falling Wedge",
-        type: "reversal",
-        bias: "bullish",
-        status: confirmed ? "confirmed" : "forming",
-        confidence: confirmed ? 70 : 50,
-        entry: breakoutLevel,
-        stop: pl[pl.length - 1].price,
-        target,
-        lines: [
-          { points: ph.slice(-2).map((p) => ({ time: p.time, value: p.price })), color: "#10b981", lineWidth: 2 },
-          { points: pl.slice(-2).map((p) => ({ time: p.time, value: p.price })), color: "#10b981", lineWidth: 2 },
-        ],
-        projectionLine: {
-          points: [
-            { time: candles[n - 1].time, value: breakoutLevel },
-            { time: candles[n - 1].time, value: target },
-          ],
-          color: "#10b98160",
-          lineWidth: 2,
-          style: "dotted",
-        },
-        description: `Máximos y mínimos decrecientes convergentes. Breakout alcista esperado por encima de $${breakoutLevel.toFixed(2)}`,
-      };
-    }
-  }
-
-  return null;
+  return results;
 }
 
 // ------------------------------------------------------------------
@@ -730,10 +735,14 @@ function detectChannel(candles: Candle[], pivots: { highs: Pivot[]; lows: Pivot[
                  Math.max(1, recentLows[recentLows.length - 1].idx - recentLows[0].idx);
 
   // Both slopes should be in the same direction and roughly parallel
+  // Use percentage-based slope relative to price
+  const hSlopePct = (hSlope / price) * 100;
+  const lSlopePct = (lSlope / price) * 100;
+  const avgSlopePct = (Math.abs(hSlopePct) + Math.abs(lSlopePct)) / 2;
+  if (avgSlopePct < 0.01) return null; // too flat, not a channel
   const slopeDiff = Math.abs(hSlope - lSlope);
   const avgSlope = (Math.abs(hSlope) + Math.abs(lSlope)) / 2;
-  if (avgSlope < 0.5) return null; // too flat, not a channel
-  if (slopeDiff / avgSlope > 1.5) return null; // not parallel enough
+  if (avgSlope > 0 && slopeDiff / avgSlope > 1.5) return null; // not parallel enough
 
   // Channel width consistency
   const widths = [];
@@ -744,7 +753,7 @@ function detectChannel(candles: Candle[], pivots: { highs: Pivot[]; lows: Pivot[
   }
   const avgWidth = widths.reduce((a, b) => a + b, 0) / widths.length;
   const widthVariance = widths.reduce((a, w) => a + Math.abs(w - avgWidth), 0) / widths.length;
-  if (widthVariance / avgWidth > 0.4) return null; // channel width too inconsistent
+  if (avgWidth > 0 && widthVariance / avgWidth > 0.5) return null; // channel width too inconsistent
 
   if (hSlope < 0 && lSlope < 0) {
     // Descending channel — bullish breakout expected
@@ -1360,8 +1369,7 @@ export function detectChartPatterns(candles: Candle[]): ChartPattern[] {
   const pennant = detectPennant(candles, pivots);
   if (pennant) patterns.push(pennant);
 
-  const wedge = detectWedge(candles, pivots);
-  if (wedge) patterns.push(wedge);
+  patterns.push(...detectWedge(candles, pivots));
 
   const rounding = detectRoundingBottom(candles, pivots);
   if (rounding) patterns.push(rounding);
@@ -1378,6 +1386,6 @@ export function detectChartPatterns(candles: Candle[]): ChartPattern[] {
   // Dedup: si hay patrones en la misma zona de precio, quedarse con el de mayor confianza
   patterns.sort((a, b) => b.confidence - a.confidence);
 
-  // Limitar a 6 patrones max para no saturar
-  return patterns.slice(0, 6);
+  // Limitar a 8 patrones max para no saturar
+  return patterns.slice(0, 8);
 }
