@@ -153,6 +153,32 @@ async def _analyze_symbol(db, symbol: str, timeframe: str, pool: str,
     avg_vol = np.mean(volumes[-21:-1]) if len(volumes) >= 21 else np.mean(volumes)
     vol_ratio = volumes[-1] / avg_vol if avg_vol > 0 else 1.0
 
+    # ——————————————————————————————————————————
+    # 0. MULTI-TIMEFRAME CONFIRMATION
+    # ——————————————————————————————————————————
+    # Determinar tendencia del timeframe superior para filtrar señales
+    htf_map = {"1m": "15m", "5m": "1h", "15m": "1h", "1h": "4h", "4h": "1d"}
+    htf = htf_map.get(timeframe)
+    htf_bias = "neutral"  # "bullish", "bearish", "neutral"
+
+    if htf:
+        htf_candles = await db.select(
+            "ohlcv",
+            filters={"symbol": symbol, "timeframe": htf},
+            order_by="-ts",
+            limit=60,
+        )
+        if htf_candles and len(htf_candles) >= 50:
+            htf_asc = sorted(htf_candles, key=lambda c: c["ts"])
+            htf_closes = [float(c["close"]) for c in htf_asc]
+            htf_ema21 = _ema(htf_closes, 21)[-1]
+            htf_ema50 = _ema(htf_closes, 50)[-1]
+            htf_price = htf_closes[-1]
+            if htf_price > htf_ema21 > htf_ema50:
+                htf_bias = "bullish"
+            elif htf_price < htf_ema21 < htf_ema50:
+                htf_bias = "bearish"
+
     created = 0
 
     # ——————————————————————————————————————————
@@ -193,7 +219,8 @@ async def _analyze_symbol(db, symbol: str, timeframe: str, pool: str,
                     conf_rule = (f"Cierre {'por encima' if bias == 'bullish' else 'por debajo'} "
                                  f"de {trigger_price:.2f} con volumen > promedio")
                     await _create_trigger(db, symbol, timeframe, pattern_name, bias,
-                                          conf_rule, trigger_type, trigger_price, None, pool, atr_val)
+                                          conf_rule, trigger_type, trigger_price, None, pool, atr_val,
+                                          htf_bias=htf_bias)
                     active_set.add((symbol, pattern_name))
                     created += 1
 
@@ -203,14 +230,14 @@ async def _analyze_symbol(db, symbol: str, timeframe: str, pool: str,
     if rsi_val < 25 and (symbol, "RSI Sobreventa") not in active_set:
         await _create_trigger(db, symbol, timeframe, "RSI Sobreventa", "bullish",
                               "RSI cruza arriba de 30 para confirmar reversión",
-                              "rsi_cross_above", None, 30, pool, atr_val)
+                              "rsi_cross_above", None, 30, pool, atr_val, htf_bias=htf_bias)
         active_set.add((symbol, "RSI Sobreventa"))
         created += 1
 
     if rsi_val > 75 and (symbol, "RSI Sobrecompra") not in active_set:
         await _create_trigger(db, symbol, timeframe, "RSI Sobrecompra", "bearish",
                               "RSI cruza abajo de 70 para confirmar corrección",
-                              "rsi_cross_below", None, 70, pool, atr_val)
+                              "rsi_cross_below", None, 70, pool, atr_val, htf_bias=htf_bias)
         active_set.add((symbol, "RSI Sobrecompra"))
         created += 1
 
@@ -228,7 +255,7 @@ async def _analyze_symbol(db, symbol: str, timeframe: str, pool: str,
                 if price > valley and (symbol, "Doble Techo") not in active_set:
                     await _create_trigger(db, symbol, timeframe, "Doble Techo", "bearish",
                                           f"Cierre por debajo de neckline {valley:.2f}",
-                                          "breakout_below", valley, None, pool, atr_val)
+                                          "breakout_below", valley, None, pool, atr_val, htf_bias=htf_bias)
                     active_set.add((symbol, "Doble Techo"))
                     created += 1
                 break
@@ -243,7 +270,7 @@ async def _analyze_symbol(db, symbol: str, timeframe: str, pool: str,
                 if price < peak and (symbol, "Doble Piso") not in active_set:
                     await _create_trigger(db, symbol, timeframe, "Doble Piso", "bullish",
                                           f"Cierre por encima de neckline {peak:.2f}",
-                                          "breakout_above", peak, None, pool, atr_val)
+                                          "breakout_above", peak, None, pool, atr_val, htf_bias=htf_bias)
                     active_set.add((symbol, "Doble Piso"))
                     created += 1
                 break
@@ -280,13 +307,52 @@ async def _analyze_symbol(db, symbol: str, timeframe: str, pool: str,
                     await _create_trigger(db, symbol, timeframe, "Bandera Alcista", "bullish",
                                           f"Cierre por encima de {breakout_level:.2f} (techo del flag)",
                                           "breakout_above", breakout_level, None, pool, atr_val,
-                                          target_mult=pole_pct / (atr_val / price * 100) if atr_val > 0 else 4.0)
+                                          target_mult=pole_pct / (atr_val / price * 100) if atr_val > 0 else 4.0,
+                                          htf_bias=htf_bias)
                     active_set.add((symbol, "Bandera Alcista"))
                     created += 1
             break
         else:
             continue
         break
+
+    # ——————————————————————————————————————————
+    # 5. HEAD & SHOULDERS (via engine detector)
+    # ——————————————————————————————————————————
+    try:
+        import pandas as _pd
+        df = _pd.DataFrame(candles_asc)
+        for col in ("open", "high", "low", "close", "volume"):
+            if col in df.columns:
+                df[col] = _pd.to_numeric(df[col])
+
+        from src.patterns.detector import detect_head_shoulders, detect_wedges, detect_flags
+
+        for hs in detect_head_shoulders(df):
+            name = "HCH Invertido" if hs.kind == "inverse_head_shoulders" else "Hombro-Cabeza-Hombro"
+            bias = "bullish" if hs.kind == "inverse_head_shoulders" else "bearish"
+            if (symbol, name) not in active_set and not hs.confirmed:
+                ttype = "breakout_above" if bias == "bullish" else "breakout_below"
+                await _create_trigger(db, symbol, timeframe, name, bias,
+                                      f"Cierre {'por encima' if bias == 'bullish' else 'por debajo'} de neckline {hs.neckline:.2f}",
+                                      ttype, hs.neckline, None, pool, atr_val, htf_bias=htf_bias)
+                active_set.add((symbol, name))
+                created += 1
+
+        # 6. WEDGE
+        for w in detect_wedges(df):
+            name = "Cuña Ascendente" if w.kind == "rising_wedge" else "Cuña Descendente"
+            bias = "bearish" if w.kind == "rising_wedge" else "bullish"
+            if (symbol, name) not in active_set and not w.confirmed:
+                ttype = "breakout_below" if w.kind == "rising_wedge" else "breakout_above"
+                await _create_trigger(db, symbol, timeframe, name, bias,
+                                      f"Cierre {'por debajo' if w.kind == 'rising_wedge' else 'por encima'} de {w.breakout_level:.2f}",
+                                      ttype, w.breakout_level, None, pool, atr_val, htf_bias=htf_bias)
+                active_set.add((symbol, name))
+                created += 1
+
+    except Exception as e:
+        log.warning("auto_analyzer_advanced_patterns_error", symbol=symbol, error=str(e))
 
     return created
 
@@ -295,8 +361,20 @@ async def _create_trigger(db, symbol: str, timeframe: str, pattern_name: str,
                           bias: str, conf_rule: str, trigger_type: str,
                           trigger_price: float | None, trigger_rsi: float | None,
                           pool: str, atr_val: float,
-                          stop_mult: float = 2.0, target_mult: float = 4.0) -> None:
-    """Inserta un trigger en la DB con expiración de 24h."""
+                          stop_mult: float = 2.0, target_mult: float = 4.0,
+                          htf_bias: str = "neutral") -> None:
+    """Inserta un trigger en la DB con expiración de 24h.
+    Multi-timeframe filter: no crea trigger si el bias contradice el HTF."""
+
+    # MTA filter: no operar contra la tendencia del timeframe superior
+    if htf_bias == "bearish" and bias == "bullish":
+        log.info("mta_filter_skip", symbol=symbol, pattern=pattern_name,
+                 reason="bullish trigger filtered — HTF bearish")
+        return
+    if htf_bias == "bullish" and bias == "bearish":
+        log.info("mta_filter_skip", symbol=symbol, pattern=pattern_name,
+                 reason="bearish trigger filtered — HTF bullish")
+        return
 
     trigger = {
         "symbol": symbol,

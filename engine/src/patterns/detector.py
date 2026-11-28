@@ -109,6 +109,44 @@ class LiquiditySweep:
 
 
 @dataclass
+class HeadShoulders:
+    """Head & Shoulders (normal o invertido)."""
+    kind: Literal["head_shoulders", "inverse_head_shoulders"]
+    head_price: float
+    left_shoulder: float
+    right_shoulder: float
+    neckline: float
+    target: float
+    head_ts: str
+    confirmed: bool  # precio ya rompió neckline
+
+
+@dataclass
+class Flag:
+    """Bull Flag o Bear Flag."""
+    kind: Literal["bull_flag", "bear_flag"]
+    pole_height_pct: float
+    breakout_level: float
+    target: float
+    stop: float
+    pole_start_ts: str
+    pole_end_ts: str
+    confirmed: bool
+
+
+@dataclass
+class Wedge:
+    """Rising o Falling Wedge."""
+    kind: Literal["rising_wedge", "falling_wedge"]
+    breakout_level: float
+    target: float
+    stop: float
+    confirmed: bool
+    start_ts: str
+    end_ts: str
+
+
+@dataclass
 class PatternResult:
     """Resultado completo de la detección de patrones."""
     levels: list[Level] = field(default_factory=list)
@@ -118,6 +156,9 @@ class PatternResult:
     rejections: list[RejectionCandle] = field(default_factory=list)
     doubles: list[DoubleFormation] = field(default_factory=list)
     sweeps: list[LiquiditySweep] = field(default_factory=list)
+    head_shoulders: list[HeadShoulders] = field(default_factory=list)
+    flags: list[Flag] = field(default_factory=list)
+    wedges: list[Wedge] = field(default_factory=list)
 
 
 # ------------------------------------------------------------------
@@ -585,6 +626,204 @@ def detect_sweeps(df: pd.DataFrame, levels: list[Level],
 
 
 # ------------------------------------------------------------------
+# 8. HEAD & SHOULDERS
+# ------------------------------------------------------------------
+
+def detect_head_shoulders(df: pd.DataFrame, lookback: int = 3) -> list[HeadShoulders]:
+    """Detecta H&S normal e invertido."""
+    if len(df) < 25:
+        return []
+
+    highs = df["high"].values
+    lows = df["low"].values
+    closes = df["close"].values
+    n = len(df)
+    price = float(closes[-1])
+    results: list[HeadShoulders] = []
+
+    # Pivot detection
+    pivot_highs: list[tuple[int, float]] = []
+    pivot_lows: list[tuple[int, float]] = []
+    for i in range(lookback, n - lookback):
+        if highs[i] == max(highs[i - lookback:i + lookback + 1]):
+            pivot_highs.append((i, float(highs[i])))
+        if lows[i] == min(lows[i - lookback:i + lookback + 1]):
+            pivot_lows.append((i, float(lows[i])))
+
+    # H&S: tres picos, el del medio más alto
+    for i in range(len(pivot_highs) - 2):
+        ls_idx, ls_p = pivot_highs[i]
+        h_idx, h_p = pivot_highs[i + 1]
+        rs_idx, rs_p = pivot_highs[i + 2]
+        if h_p <= ls_p or h_p <= rs_p:
+            continue
+        if abs(ls_p - rs_p) / max(ls_p, rs_p) > 0.03:
+            continue
+        if h_idx - ls_idx < 3 or rs_idx - h_idx < 3:
+            continue
+        neck1 = float(min(lows[ls_idx:h_idx + 1]))
+        neck2 = float(min(lows[h_idx:rs_idx + 1]))
+        neckline = (neck1 + neck2) / 2
+        height = h_p - neckline
+        if height / neckline < 0.015:
+            continue
+        results.append(HeadShoulders(
+            kind="head_shoulders", head_price=h_p,
+            left_shoulder=ls_p, right_shoulder=rs_p,
+            neckline=neckline, target=neckline - height,
+            head_ts=_ts(df, h_idx), confirmed=price < neckline,
+        ))
+
+    # Inverse H&S
+    for i in range(len(pivot_lows) - 2):
+        ls_idx, ls_p = pivot_lows[i]
+        h_idx, h_p = pivot_lows[i + 1]
+        rs_idx, rs_p = pivot_lows[i + 2]
+        if h_p >= ls_p or h_p >= rs_p:
+            continue
+        if abs(ls_p - rs_p) / max(ls_p, rs_p) > 0.03:
+            continue
+        if h_idx - ls_idx < 3 or rs_idx - h_idx < 3:
+            continue
+        neck1 = float(max(highs[ls_idx:h_idx + 1]))
+        neck2 = float(max(highs[h_idx:rs_idx + 1]))
+        neckline = (neck1 + neck2) / 2
+        height = neckline - h_p
+        if height / neckline < 0.015:
+            continue
+        results.append(HeadShoulders(
+            kind="inverse_head_shoulders", head_price=h_p,
+            left_shoulder=ls_p, right_shoulder=rs_p,
+            neckline=neckline, target=neckline + height,
+            head_ts=_ts(df, h_idx), confirmed=price > neckline,
+        ))
+
+    return results
+
+
+# ------------------------------------------------------------------
+# 9. FLAG / PENNANT
+# ------------------------------------------------------------------
+
+def detect_flags(df: pd.DataFrame) -> list[Flag]:
+    """Detecta bull flags y bear flags."""
+    if len(df) < 30:
+        return []
+
+    highs = df["high"].values
+    lows = df["low"].values
+    closes = df["close"].values
+    n = len(df)
+    price = float(closes[-1])
+    results: list[Flag] = []
+
+    for pole_end in range(n - 8, max(n - 20, 10), -1):
+        for pole_start in range(pole_end - 5, max(pole_end - 15, 0), -1):
+            pole_h = float(highs[pole_end]) - float(lows[pole_start])
+            pole_pct = pole_h / float(lows[pole_start]) * 100
+            if pole_pct < 2 or pole_end - pole_start < 3:
+                continue
+
+            flag_highs = highs[pole_end:n]
+            flag_lows = lows[pole_end:n]
+            if len(flag_highs) < 3:
+                continue
+
+            flag_max = float(max(flag_highs))
+            flag_min = float(min(flag_lows))
+            flag_range_pct = (flag_max - flag_min) / flag_max * 100
+
+            if flag_range_pct > pole_pct * 0.6:
+                continue
+            retrace = (float(highs[pole_end]) - flag_min) / pole_h
+            if retrace > 0.5:
+                continue
+
+            # Verificar consolidación bajista (bull flag)
+            mid = (pole_end + n) // 2
+            first_avg = float(np.mean(closes[pole_end:mid])) if mid > pole_end else price
+            second_avg = float(np.mean(closes[mid:n])) if n > mid else price
+
+            if second_avg < first_avg:
+                # Bull flag
+                results.append(Flag(
+                    kind="bull_flag", pole_height_pct=pole_pct,
+                    breakout_level=flag_max, target=flag_max + pole_h,
+                    stop=flag_min,
+                    pole_start_ts=_ts(df, pole_start),
+                    pole_end_ts=_ts(df, pole_end),
+                    confirmed=price > flag_max,
+                ))
+                return results  # solo el primero
+
+    return results
+
+
+# ------------------------------------------------------------------
+# 10. WEDGE
+# ------------------------------------------------------------------
+
+def detect_wedges(df: pd.DataFrame, lookback: int = 3) -> list[Wedge]:
+    """Detecta Rising Wedge y Falling Wedge."""
+    if len(df) < 25:
+        return []
+
+    highs = df["high"].values
+    lows = df["low"].values
+    closes = df["close"].values
+    n = len(df)
+    price = float(closes[-1])
+
+    pivot_highs: list[tuple[int, float]] = []
+    pivot_lows: list[tuple[int, float]] = []
+    for i in range(lookback, n - lookback):
+        if highs[i] == max(highs[i - lookback:i + lookback + 1]):
+            pivot_highs.append((i, float(highs[i])))
+        if lows[i] == min(lows[i - lookback:i + lookback + 1]):
+            pivot_lows.append((i, float(lows[i])))
+
+    if len(pivot_highs) < 2 or len(pivot_lows) < 2:
+        return []
+
+    ph = pivot_highs[-2:]
+    pl = pivot_lows[-2:]
+
+    h_slope = (ph[1][1] - ph[0][1]) / max(1, ph[1][0] - ph[0][0])
+    l_slope = (pl[1][1] - pl[0][1]) / max(1, pl[1][0] - pl[0][0])
+    height = ph[-1][1] - pl[-1][1]
+
+    results: list[Wedge] = []
+
+    # Rising Wedge: both slopes up, converging
+    if h_slope > 0 and l_slope > 0 and l_slope > h_slope * 0.3:
+        h_range = ph[1][1] - ph[0][1]
+        l_range = pl[1][1] - pl[0][1]
+        if l_range > h_range:
+            results.append(Wedge(
+                kind="rising_wedge", breakout_level=pl[-1][1],
+                target=pl[-1][1] - height, stop=ph[-1][1],
+                confirmed=price < pl[-1][1],
+                start_ts=_ts(df, min(ph[0][0], pl[0][0])),
+                end_ts=_ts(df, max(ph[-1][0], pl[-1][0])),
+            ))
+
+    # Falling Wedge: both slopes down, converging
+    if h_slope < 0 and l_slope < 0 and h_slope < l_slope * 0.3:
+        h_range = abs(ph[1][1] - ph[0][1])
+        l_range = abs(pl[1][1] - pl[0][1])
+        if h_range > l_range:
+            results.append(Wedge(
+                kind="falling_wedge", breakout_level=ph[-1][1],
+                target=ph[-1][1] + height, stop=pl[-1][1],
+                confirmed=price > ph[-1][1],
+                start_ts=_ts(df, min(ph[0][0], pl[0][0])),
+                end_ts=_ts(df, max(ph[-1][0], pl[-1][0])),
+            ))
+
+    return results
+
+
+# ------------------------------------------------------------------
 # DETECCIÓN COMPLETA
 # ------------------------------------------------------------------
 
@@ -602,4 +841,7 @@ def detect_all(df: pd.DataFrame, pivot_lookback: int = 5) -> PatternResult:
         rejections=detect_rejections(df, levels),
         doubles=detect_doubles(df, lookback=pivot_lookback),
         sweeps=detect_sweeps(df, levels),
+        head_shoulders=detect_head_shoulders(df),
+        flags=detect_flags(df),
+        wedges=detect_wedges(df),
     )

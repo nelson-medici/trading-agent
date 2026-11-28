@@ -540,9 +540,66 @@ async def watch_positions() -> None:
                     "unrealized_pnl_pct": pnl_pct,
                 }, {"symbol": pos["symbol"], "pool": pos["pool"]})
 
+                # ——————————————————————————————————————
+                # TRAILING STOP + PARTIAL TAKE PROFIT
+                # ——————————————————————————————————————
+                risk = entry - stop  # distancia original de riesgo (1R)
                 exit_reason = None
-                if current_price <= stop: exit_reason = "stop"
-                elif current_price >= target: exit_reason = "target"
+
+                # 1. Stop loss hit
+                if current_price <= stop:
+                    exit_reason = "stop"
+
+                # 2. Full target hit
+                elif current_price >= target:
+                    exit_reason = "target"
+
+                # 3. Partial take profit at +2R (close 50%)
+                elif risk > 0 and current_price >= entry + risk * 2:
+                    partial_done = pos.get("partial_tp_done", False)
+                    if not partial_done:
+                        half_size = size * 0.5
+                        partial_pnl = (current_price - entry) * half_size
+                        commission = half_size * current_price * 0.001
+                        # Register partial close as trade
+                        await db.insert("trades", {
+                            "symbol": pos["symbol"], "side": "LONG",
+                            "size_units": half_size,
+                            "entry_price": entry, "exit_price": current_price,
+                            "entry_at": pos["opened_at"], "exit_at": _utc_now_iso(),
+                            "pnl_usd": partial_pnl - commission,
+                            "pnl_pct": (current_price - entry) / entry,
+                            "commission_usd": commission,
+                            "exit_reason": "partial_tp",
+                            "pool": pos["pool"], "hold_hours": 0,
+                            "strategy_name": "trailing",
+                        })
+                        # Update position: half size, move stop to breakeven
+                        await db.update("positions", {
+                            "size_units": size - half_size,
+                            "stop_price": entry,  # trailing: stop → breakeven
+                            "partial_tp_done": True,
+                        }, {"symbol": pos["symbol"], "pool": pos["pool"]})
+                        log.info("partial_tp_executed", symbol=pos["symbol"],
+                                 pnl=round(partial_pnl, 2), new_stop=entry)
+                        await db.insert("alerts", {
+                            "level": "info", "category": "position",
+                            "title": f"Partial TP {pos['symbol']} +{((current_price-entry)/entry*100):.1f}%",
+                            "message": f"Cerró 50% en ${current_price:.2f}. Stop → breakeven ${entry:.2f}",
+                            "metadata": {"symbol": pos["symbol"], "pool": pos["pool"]},
+                        })
+
+                # 4. Trailing stop: si ya hizo partial, mover stop con el precio
+                if not exit_reason and risk > 0 and pos.get("partial_tp_done"):
+                    # Trail stop at -1R desde el máximo alcanzado
+                    # Usar el current_price como proxy del máximo
+                    new_stop = current_price - risk
+                    if new_stop > stop:
+                        await db.update("positions", {
+                            "stop_price": new_stop,
+                        }, {"symbol": pos["symbol"], "pool": pos["pool"]})
+                        log.debug("trailing_stop_moved", symbol=pos["symbol"],
+                                  old_stop=stop, new_stop=new_stop)
 
                 if exit_reason:
                     await _close_paper_position(pos, current_price, exit_reason)

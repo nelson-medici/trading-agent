@@ -106,12 +106,12 @@ export default function CandlestickChartComponent({ candles, emas = [], markers 
     });
 
     const candleSeries = chart.addCandlestickSeries({
-      upColor: "#84cc16",
-      downColor: "#ef4444",
-      borderUpColor: "#84cc16",
-      borderDownColor: "#ef4444",
-      wickUpColor: "#84cc16",
-      wickDownColor: "#ef4444",
+      upColor: "#2fb882",
+      downColor: "#f94a61",
+      borderUpColor: "#2fb882",
+      borderDownColor: "#f94a61",
+      wickUpColor: "#2fb882",
+      wickDownColor: "#f94a61",
     });
 
     const volumeSeries = chart.addHistogramSeries({
@@ -153,7 +153,7 @@ export default function CandlestickChartComponent({ candles, emas = [], markers 
     const volumeData = candles.map((c) => ({
       time: toTime(c.time),
       value: c.volume ?? 0,
-      color: c.close >= c.open ? "#84cc1620" : "#ef444420",
+      color: c.close >= c.open ? "#2fb88220" : "#f94a6120",
     }));
     volumeSeriesRef.current.setData(volumeData);
 
