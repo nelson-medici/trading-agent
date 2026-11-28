@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase";
 import { useRouter } from "next/navigation";
 import Shell from "@/components/Shell";
-import CandlestickChart, { Candle, EmaOverlay, Marker, HorizontalLine, TrendLine, type ChartHandle } from "@/components/CandlestickChart";
+import CandlestickChart, { Candle, EmaOverlay, Marker, HorizontalLine, TrendLine, type ChartHandle, type PatternZone } from "@/components/CandlestickChart";
 import { computeEMA, formatUsd } from "@/lib/utils";
 import { detectLevels, detectFVG, detectRejections, computeVolumeProfile, type PriceLevel, type FVGZone, type Rejection, type VolumeProfileBar } from "@/lib/patterns";
 import { analyzeMarket, type AnalysisResult } from "@/lib/analyzer";
@@ -536,6 +536,67 @@ export default function ChartsPage() {
     return m;
   }, [trades, signals, showTrades, showSignals, showRejections, rejectionCandles, analysis, savedAnalyses, symbol, candles, showCandlePatterns, candlePatterns, showStructure, marketStructure, patternOverlayActive, patternOverlay]);
 
+  // Pattern zones for the top bar of the chart
+  const patternZones: PatternZone[] = useMemo(() => {
+    const zones: PatternZone[] = [];
+
+    // Colors per pattern type
+    const zoneColors: Record<string, string> = {
+      "Double Top": "#ef4444",
+      "Double Bottom": "#10b981",
+      "Triple Top": "#ef4444",
+      "Triple Bottom": "#10b981",
+      "Head & Shoulders": "#f97316",
+      "Inverse Head & Shoulders": "#06b6d4",
+      "Bull Flag": "#22c55e",
+      "Bear Flag": "#ef4444",
+      "Pennant": "#a855f7",
+      "Rising Wedge": "#f59e0b",
+      "Falling Wedge": "#14b8a6",
+      "Descending Channel": "#ec4899",
+      "Ascending Channel": "#8b5cf6",
+      "Rectangle": "#6366f1",
+      "Rounding Bottom": "#2dd4bf",
+      "Diamond": "#f472b6",
+      "ABCD": "#fbbf24",
+      "Gartley": "#38bdf8",
+      "Butterfly": "#c084fc",
+    };
+
+    // From pattern overlay (Patrones button)
+    if (patternOverlayActive) {
+      for (const cp of patternOverlay) {
+        if (cp.lines.length === 0) continue;
+        // Get time range from the pattern's lines
+        const allTimes = cp.lines.flatMap((l) => l.points.map((p) => p.time));
+        if (allTimes.length < 2) continue;
+        const fromTime = allTimes[0];
+        const toTime = allTimes[allTimes.length - 1];
+        zones.push({
+          name: cp.name,
+          color: zoneColors[cp.nameEn] ?? (cp.bias === "bullish" ? "#10b981" : "#ef4444"),
+          fromTime,
+          toTime,
+        });
+      }
+    }
+
+    // From analysis chart patterns
+    for (const cp of chartPatternsDetected) {
+      if (cp.lines.length === 0) continue;
+      const allTimes = cp.lines.flatMap((l) => l.points.map((p) => p.time));
+      if (allTimes.length < 2) continue;
+      zones.push({
+        name: cp.name,
+        color: zoneColors[cp.nameEn] ?? (cp.bias === "bullish" ? "#10b981" : "#ef4444"),
+        fromTime: allTimes[0],
+        toTime: allTimes[allTimes.length - 1],
+      });
+    }
+
+    return zones;
+  }, [patternOverlayActive, patternOverlay, chartPatternsDetected]);
+
   // Horizontal lines: posiciones + soportes/resistencias + FVGs + Volume Profile POC
   const horizontalLines: HorizontalLine[] = useMemo(() => {
     const lines: HorizontalLine[] = [];
@@ -729,6 +790,7 @@ export default function ChartsPage() {
                 markers={markers}
                 horizontalLines={horizontalLines}
                 trendLines={trendLines}
+                patternZones={patternZones}
                 height={520}
               />
             )}

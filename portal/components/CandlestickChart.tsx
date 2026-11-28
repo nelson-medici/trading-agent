@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useRef, forwardRef, useImperativeHandle } from "react";
+import { useEffect, useRef, useState, forwardRef, useImperativeHandle } from "react";
 import {
   createChart,
   ColorType,
@@ -49,12 +49,20 @@ export interface TrendLine {
   title?: string;
 }
 
+export interface PatternZone {
+  name: string;
+  color: string;           // background color
+  fromTime: number | string;
+  toTime: number | string;
+}
+
 interface Props {
   candles: Candle[];
   emas?: EmaOverlay[];
   markers?: Marker[];
   horizontalLines?: HorizontalLine[];
   trendLines?: TrendLine[];
+  patternZones?: PatternZone[];
   height?: number;
 }
 
@@ -70,7 +78,7 @@ export interface ChartHandle {
 }
 
 const CandlestickChartComponent = forwardRef<ChartHandle, Props>(function CandlestickChartInner(
-  { candles, emas = [], markers = [], horizontalLines = [], trendLines = [], height = 480 },
+  { candles, emas = [], markers = [], horizontalLines = [], trendLines = [], patternZones = [], height = 480 },
   ref,
 ) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -266,7 +274,93 @@ const CandlestickChartComponent = forwardRef<ChartHandle, Props>(function Candle
     }
   }, [horizontalLines]);
 
-  return <div ref={containerRef} style={{ height: `${height}px`, width: "100%" }} />;
+  // Pattern zone overlays: position labels at the top of the chart
+  const [zonePositions, setZonePositions] = useState<{ name: string; color: string; left: number; width: number }[]>([]);
+
+  useEffect(() => {
+    if (!chartRef.current || patternZones.length === 0 || candles.length === 0) {
+      setZonePositions([]);
+      return;
+    }
+
+    const updateZones = () => {
+      if (!chartRef.current) return;
+      const ts = chartRef.current.timeScale();
+      const positions: { name: string; color: string; left: number; width: number }[] = [];
+
+      for (const zone of patternZones) {
+        const fromCoord = ts.timeToCoordinate(toTime(zone.fromTime));
+        const toCoord = ts.timeToCoordinate(toTime(zone.toTime));
+        if (fromCoord === null || toCoord === null) continue;
+
+        const left = Math.min(fromCoord, toCoord);
+        const width = Math.abs(toCoord - fromCoord);
+        if (width < 10) continue; // too small to show
+
+        positions.push({ name: zone.name, color: zone.color, left, width });
+      }
+      setZonePositions(positions);
+    };
+
+    updateZones();
+
+    // Update on scroll/zoom
+    const ts = chartRef.current.timeScale();
+    ts.subscribeVisibleLogicalRangeChange(updateZones);
+    return () => { ts.unsubscribeVisibleLogicalRangeChange(updateZones); };
+  }, [patternZones, candles]);
+
+  return (
+    <div style={{ position: "relative", height: `${height}px`, width: "100%" }}>
+      <div ref={containerRef} style={{ height: "100%", width: "100%" }} />
+      {/* Pattern zone labels at the top */}
+      {zonePositions.map((z, i) => (
+        <div key={i} style={{
+          position: "absolute",
+          top: 0,
+          left: `${z.left}px`,
+          width: `${z.width}px`,
+          zIndex: 5,
+          pointerEvents: "none",
+        }}>
+          {/* Vertical line (subtle) */}
+          <div style={{
+            position: "absolute",
+            left: 0,
+            top: 20,
+            bottom: 0,
+            width: "1px",
+            background: `${z.color}30`,
+            height: `${height - 20}px`,
+          }} />
+          <div style={{
+            position: "absolute",
+            right: 0,
+            top: 20,
+            width: "1px",
+            background: `${z.color}30`,
+            height: `${height - 20}px`,
+          }} />
+          {/* Label */}
+          <div style={{
+            background: z.color,
+            padding: "2px 6px",
+            fontSize: "9px",
+            fontWeight: 600,
+            letterSpacing: "0.05em",
+            textTransform: "uppercase",
+            color: "#000",
+            whiteSpace: "nowrap",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            textAlign: "center",
+          }}>
+            {z.name}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
 });
 
 export default CandlestickChartComponent;
