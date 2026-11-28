@@ -841,6 +841,16 @@ async def evaluate_pending_predictions() -> None:
         log.error("prediction_eval_failed", error=str(e), exc_info=True)
 
 
+async def run_auto_tuner() -> None:
+    """Cada 6h. Auto-learning: analiza performance y ajusta parámetros."""
+    try:
+        from src.learning.auto_tuner import run_auto_tuner
+        summary = await run_auto_tuner()
+        log.info("auto_tuner_done", **{k: v for k, v in summary.items() if k != "best_conditions" and k != "worst_conditions" and k != "recommendations"})
+    except Exception as e:
+        log.error("auto_tuner_failed", error=str(e), exc_info=True)
+
+
 # ============================================================
 # ROLLOVER / BACKUP / REPORTS
 # ============================================================
