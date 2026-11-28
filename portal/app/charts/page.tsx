@@ -265,6 +265,60 @@ export default function ChartsPage() {
       }
     }
 
+    // Análisis actual — marcadores de patrones sobre el gráfico
+    if (analysis && candles.length > 0) {
+      const lastCandle = candles[candles.length - 1];
+      // Marcador principal del análisis
+      const actionColors: Record<string, string> = { BUY: "#10b981", SELL: "#ef4444", WATCH: "#f59e0b", WAIT: "#71717a" };
+      const actionShapes: Record<string, "arrowUp" | "arrowDown" | "circle" | "square"> = {
+        BUY: "arrowUp", SELL: "arrowDown", WATCH: "circle", WAIT: "square",
+      };
+      m.push({
+        time: lastCandle.time,
+        position: analysis.action === "SELL" ? "aboveBar" : "belowBar",
+        color: actionColors[analysis.action] || "#71717a",
+        shape: actionShapes[analysis.action] || "square",
+        text: `${analysis.action} · ${analysis.patterns.length} patrones · ${analysis.biasStrength}%`,
+      });
+
+      // Marcadores de cada patrón confirmado
+      for (const p of analysis.patterns) {
+        if (p.confirmed) {
+          m.push({
+            time: lastCandle.time,
+            position: p.bias === "bullish" ? "belowBar" : "aboveBar",
+            color: p.bias === "bullish" ? "#a78bfa" : "#fb7185",
+            shape: "circle",
+            text: `✓ ${p.name}`,
+          });
+        }
+      }
+    }
+
+    // Análisis guardados — marcar sobre el gráfico en sus timestamps
+    for (const sa of savedAnalyses) {
+      if (sa.symbol !== symbol) continue;
+      // Buscar la vela más cercana al timestamp del análisis
+      const aTime = new Date(sa.timestamp).getTime();
+      let closestCandle = candles[candles.length - 1];
+      let closestDist = Infinity;
+      for (const c of candles) {
+        const cTime = typeof c.time === "string" ? new Date(c.time).getTime() : c.time * 1000;
+        const dist = Math.abs(cTime - aTime);
+        if (dist < closestDist) { closestDist = dist; closestCandle = c; }
+      }
+      if (closestCandle && closestDist < 86400000) { // dentro de 24h
+        const actionColors: Record<string, string> = { BUY: "#10b981", SELL: "#ef4444", WATCH: "#f59e0b", WAIT: "#52525b" };
+        m.push({
+          time: closestCandle.time,
+          position: "inBar",
+          color: actionColors[sa.action] || "#52525b",
+          shape: "square",
+          text: `${sa.action} ${new Date(sa.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`,
+        });
+      }
+    }
+
     // Sort markers by time (lightweight-charts lo exige)
     m.sort((a, b) => {
       const ta = typeof a.time === "string" ? new Date(a.time).getTime() : a.time;
@@ -272,7 +326,7 @@ export default function ChartsPage() {
       return ta - tb;
     });
     return m;
-  }, [trades, signals, showTrades, showSignals, showRejections, rejectionCandles]);
+  }, [trades, signals, showTrades, showSignals, showRejections, rejectionCandles, analysis, savedAnalyses, symbol, candles]);
 
   // Horizontal lines: posiciones + soportes/resistencias + FVGs + Volume Profile POC
   const horizontalLines: HorizontalLine[] = useMemo(() => {
@@ -311,8 +365,45 @@ export default function ChartsPage() {
       }
     }
 
+    // Líneas derivadas del análisis actual
+    if (analysis) {
+      // EMA200 como línea de referencia de tendencia
+      if (analysis.ema200 > 0) {
+        lines.push({ price: analysis.ema200, color: "#ec489950", title: "EMA200", lineStyle: 2 });
+      }
+
+      // Trigger level si hay patrón en formación
+      for (const p of analysis.patterns) {
+        if (!p.confirmed && p.confirmationRule) {
+          // Extraer precio del confirmation rule (buscar números)
+          const priceMatch = p.confirmationRule.match(/(\d+[.,]?\d*)/);
+          if (priceMatch) {
+            const triggerPrice = parseFloat(priceMatch[1].replace(",", ""));
+            if (triggerPrice > 0 && Math.abs(triggerPrice - analysis.price) / analysis.price < 0.1) {
+              lines.push({
+                price: triggerPrice,
+                color: "#f59e0b",
+                title: `⚡ ${p.name}`,
+                lineStyle: 1, // Dotted
+              });
+            }
+          }
+        }
+      }
+
+      // Niveles clave del análisis: soporte y resistencia más cercanos
+      const nearSup = analysis.levels.filter((l) => l.kind === "support").sort((a, b) => b.price - a.price)[0];
+      const nearRes = analysis.levels.filter((l) => l.kind === "resistance").sort((a, b) => a.price - b.price)[0];
+      if (nearSup && !priceLevels.some((l) => Math.abs(l.price - nearSup.price) / nearSup.price < 0.001)) {
+        lines.push({ price: nearSup.price, color: "#22d3ee80", title: `S* ${nearSup.touches}t`, lineStyle: 2 });
+      }
+      if (nearRes && !priceLevels.some((l) => Math.abs(l.price - nearRes.price) / nearRes.price < 0.001)) {
+        lines.push({ price: nearRes.price, color: "#f472b680", title: `R* ${nearRes.touches}t`, lineStyle: 2 });
+      }
+    }
+
     return lines;
-  }, [positions, showPositionLevels, priceLevels, fvgZones, volProfile, showVolProfile]);
+  }, [positions, showPositionLevels, priceLevels, fvgZones, volProfile, showVolProfile, analysis]);
 
   if (loading) return null;
 
@@ -394,28 +485,30 @@ export default function ChartsPage() {
           <Toggle label="Vol Profile" active={showVolProfile} onToggle={() => setShowVolProfile(!showVolProfile)} color="#fbbf24" />
         </div>
 
-        {/* Chart */}
-        <div className="border border-zinc-800 bg-zinc-950 p-2">
-          {candles.length === 0 ? (
-            <div className="h-[480px] flex items-center justify-center text-zinc-600 text-xs">
-              Sin datos OHLCV para {symbol} {timeframe}. Corré backfill o esperá al próximo tick del engine.
-            </div>
-          ) : (
-            <CandlestickChart
-              candles={candles}
-              emas={emas}
-              markers={markers}
-              horizontalLines={horizontalLines}
-              height={520}
-            />
-          )}
-        </div>
+        {/* Chart + Drawer lateral */}
+        <div className="flex gap-0">
+          {/* Chart */}
+          <div className={`border border-zinc-800 bg-zinc-950 p-2 ${analysis && analysisOpen ? "flex-1 min-w-0" : "w-full"}`}>
+            {candles.length === 0 ? (
+              <div className="h-[480px] flex items-center justify-center text-zinc-600 text-xs">
+                Sin datos OHLCV para {symbol} {timeframe}. Corré backfill o esperá al próximo tick del engine.
+              </div>
+            ) : (
+              <CandlestickChart
+                candles={candles}
+                emas={emas}
+                markers={markers}
+                horizontalLines={horizontalLines}
+                height={520}
+              />
+            )}
+          </div>
 
-        {/* Panel de análisis */}
-        {analysis && analysisOpen && (
-          <div className="border border-violet-800/50 bg-zinc-950 overflow-hidden">
-            {/* Header */}
-            <div className="px-4 py-2.5 border-b border-violet-900/30 flex items-center justify-between bg-violet-950/20">
+          {/* Drawer de análisis (lateral derecho) */}
+          {analysis && analysisOpen && (
+            <div className="w-[340px] flex-shrink-0 border border-l-0 border-violet-800/50 bg-zinc-950 overflow-y-auto max-h-[556px] hidden lg:block">
+              {/* Drawer Header */}
+              <div className="px-3 py-2 border-b border-violet-900/30 flex items-center justify-between bg-violet-950/20 sticky top-0 z-10 backdrop-blur">
               <div className="flex items-center gap-3">
                 <div className="flex items-center gap-1.5">
                   {analysis.action === "BUY" && <ShoppingCart className="w-4 h-4 text-emerald-400" />}
@@ -579,6 +672,35 @@ export default function ChartsPage() {
                   ))}
                 </ul>
               </details>
+            </div>
+          </div>
+        )}
+        </div>
+
+        {/* Panel de análisis mobile (debajo del chart en pantallas chicas) */}
+        {analysis && analysisOpen && (
+          <div className="lg:hidden border border-violet-800/50 bg-zinc-950 overflow-hidden">
+            <div className="px-3 py-2 border-b border-violet-900/30 flex items-center justify-between bg-violet-950/20">
+              <div className="flex items-center gap-2">
+                <span className={`text-sm font-medium ${
+                  analysis.action === "BUY" ? "text-emerald-400" : analysis.action === "SELL" ? "text-red-400" :
+                  analysis.action === "WATCH" ? "text-amber-400" : "text-zinc-400"
+                }`}>{analysis.action}</span>
+                <span className="text-[10px] text-zinc-500">{analysis.bias} · {analysis.biasStrength}%</span>
+              </div>
+              <button onClick={() => setAnalysisOpen(false)} className="text-zinc-500 text-[10px] uppercase">cerrar</button>
+            </div>
+            <div className="px-3 py-2">
+              <div className="text-[12px] text-zinc-200 leading-relaxed">{analysis.reading}</div>
+              {analysis.patterns.length > 0 && (
+                <div className="mt-2 flex flex-wrap gap-1">
+                  {analysis.patterns.map((p, i) => (
+                    <span key={i} className={`text-[9px] border px-1.5 py-0.5 ${p.confirmed ? "border-violet-700 text-violet-300" : "border-zinc-800 text-zinc-500"}`}>
+                      {p.confirmed ? "✓" : "○"} {p.name}
+                    </span>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         )}
