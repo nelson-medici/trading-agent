@@ -8,6 +8,7 @@ import { computeEMA, formatUsd } from "@/lib/utils";
 import { detectLevels, detectFVG, detectRejections, computeVolumeProfile, type PriceLevel, type FVGZone, type Rejection, type VolumeProfileBar } from "@/lib/patterns";
 import { analyzeMarket, type AnalysisResult } from "@/lib/analyzer";
 import { detectCandlePatterns, detectMarketStructure, type CandlePattern, type StructurePoint, type MarketStructure } from "@/lib/candlePatterns";
+import { detectChartPatterns, type ChartPattern } from "@/lib/chartPatterns";
 import { Search, TrendingUp, TrendingDown, Minus, Clock, Eye, ShoppingCart, XCircle, Save, ChevronDown, ChevronUp } from "lucide-react";
 
 const UNIVERSE_CRYPTO = ["BTC/USDT", "ETH/USDT", "SOL/USDT", "BNB/USDT", "AVAX/USDT", "LINK/USDT", "DOT/USDT", "MATIC/USDT", "ARB/USDT"];
@@ -233,7 +234,15 @@ export default function ChartsPage() {
     return detectMarketStructure(candles, 5);
   }, [candles, showStructure]);
 
-  // Trend lines: triangle boundaries + structure channels
+  // Chart patterns (Flag, Double Top/Bottom, Wedge, H&S, Rectangle)
+  const chartPatternsDetected: ChartPattern[] = useMemo(() => {
+    if (candles.length < 25) return [];
+    // Run detection when analysis is active or structure is on
+    if (!analysis && !showStructure) return [];
+    return detectChartPatterns(candles);
+  }, [candles, analysis, showStructure]);
+
+  // Trend lines: triangle boundaries + structure channels + chart patterns
   const trendLines: TrendLine[] = useMemo(() => {
     const lines: TrendLine[] = [];
 
@@ -281,8 +290,30 @@ export default function ChartsPage() {
       }
     }
 
+    // Chart pattern lines (Flag, Double Top, Wedge, H&S, Rectangle)
+    for (const cp of chartPatternsDetected) {
+      for (const pl of cp.lines) {
+        lines.push({
+          points: pl.points,
+          color: pl.color,
+          lineWidth: pl.lineWidth ?? 1,
+          lineStyle: pl.style === "dotted" ? 1 as any : pl.style === "dashed" ? 2 as any : 0 as any,
+        });
+      }
+      // Projection line (target)
+      if (cp.projectionLine) {
+        lines.push({
+          points: cp.projectionLine.points,
+          color: cp.projectionLine.color,
+          lineWidth: cp.projectionLine.lineWidth ?? 2,
+          lineStyle: 1 as any, // Dotted
+          title: `→ $${cp.target?.toFixed(0) ?? ""}`,
+        });
+      }
+    }
+
     return lines;
-  }, [analysis, showStructure, marketStructure]);
+  }, [analysis, showStructure, marketStructure, chartPatternsDetected]);
 
   // Markers: trades (entry + exit) y signals
   const markers: Marker[] = useMemo(() => {
@@ -627,6 +658,22 @@ export default function ChartsPage() {
                 </div>
               </div>
 
+              {/* Fase del mercado */}
+              <div className="px-3 py-1.5 border-b border-zinc-800 flex items-center gap-2">
+                <span className={`text-[9px] uppercase tracking-wider px-2 py-0.5 font-medium ${
+                  analysis.marketPhase === "advance" ? "bg-emerald-950 text-emerald-300" :
+                  analysis.marketPhase === "decline" ? "bg-red-950 text-red-300" :
+                  analysis.marketPhase === "distribution" ? "bg-amber-950 text-amber-300" :
+                  "bg-sky-950 text-sky-300"
+                }`}>{analysis.marketPhase === "advance" ? "▲ Avance" :
+                  analysis.marketPhase === "decline" ? "▼ Caída" :
+                  analysis.marketPhase === "distribution" ? "◆ Distribución" :
+                  "◇ Acumulación"}</span>
+                <span className="text-[9px] text-zinc-600 truncate" title={analysis.marketPhaseLabel}>
+                  {analysis.marketPhaseLabel.split(".")[0]}
+                </span>
+              </div>
+
               {/* PRONÓSTICO — la sección clave */}
               <div className="px-3 py-2.5 border-b border-zinc-800 bg-zinc-900/30">
                 <div className={`text-[12px] leading-relaxed font-medium ${
@@ -709,6 +756,32 @@ export default function ChartsPage() {
                       </span>
                     ))}
                   </div>
+                </div>
+              )}
+
+              {/* Chart patterns (Flag, H&S, etc.) con niveles */}
+              {chartPatternsDetected.length > 0 && (
+                <div className="px-3 py-2 border-t border-indigo-900/30">
+                  {chartPatternsDetected.slice(0, 2).map((cp, i) => (
+                    <div key={i} className={`mb-1.5 last:mb-0 border px-2 py-1.5 ${
+                      cp.bias === "bullish" ? "border-emerald-900/50 bg-emerald-950/10" : "border-red-900/50 bg-red-950/10"
+                    }`}>
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-[11px] font-medium text-zinc-200">{cp.name}</span>
+                        <span className={`text-[9px] px-1.5 py-0.5 ${
+                          cp.status === "confirmed" ? "bg-lime-900/40 text-lime-300" :
+                          cp.status === "projected" ? "bg-violet-900/40 text-violet-300" :
+                          "bg-zinc-800 text-zinc-500"
+                        }`}>{cp.status === "confirmed" ? "✓" : "○"} {cp.confidence}%</span>
+                      </div>
+                      {/* Niveles inline */}
+                      <div className="flex gap-3 text-[10px] tabular-nums">
+                        {cp.entry != null && <span className="text-zinc-400">Entry <span className="text-zinc-200">${cp.entry.toFixed(0)}</span></span>}
+                        {cp.stop != null && <span className="text-zinc-400">Stop <span className="text-red-400">${cp.stop.toFixed(0)}</span></span>}
+                        {cp.target != null && <span className="text-zinc-400">Target <span className="text-emerald-400">${cp.target.toFixed(0)}</span></span>}
+                      </div>
+                    </div>
+                  ))}
                 </div>
               )}
 

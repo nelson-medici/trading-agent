@@ -57,6 +57,10 @@ export interface AnalysisResult {
   details: string[];  // bullets de detalle
   triggerCondition: string | null;  // si hay un trigger, qué esperar
 
+  // Fase del mercado (Wyckoff)
+  marketPhase: "accumulation" | "advance" | "distribution" | "decline";
+  marketPhaseLabel: string;
+
   // Pivots para dibujar triángulos y canales
   pivotHighs: { idx: number; price: number; time: string | number }[];
   pivotLows: { idx: number; price: number; time: string | number }[];
@@ -403,6 +407,37 @@ export function analyzeMarket(candles: Candle[], symbol: string, timeframe: stri
     forecast = `NO OPERAR — mercado lateral, sin setup claro. Preservar capital hasta que se forme un patrón accionable.`;
   }
 
+  // ------------------------------------------------------------------
+  // FASE DEL MERCADO (Wyckoff simplificado)
+  // ------------------------------------------------------------------
+  let marketPhase: "accumulation" | "advance" | "distribution" | "decline" = "accumulation";
+  let marketPhaseLabel = "";
+
+  const priceAboveEma50 = price > ema50;
+  const priceAboveEma200 = price > ema200;
+  const ema50AboveEma200 = ema50 > ema200;
+  const trendStrong = Math.abs(ema9 - ema50) / ema50 * 100 > 0.5;
+
+  if (priceAboveEma50 && priceAboveEma200 && ema50AboveEma200 && trendStrong) {
+    marketPhase = "advance";
+    marketPhaseLabel = "Avance — tendencia alcista activa. Precio sobre medias alineadas al alza.";
+  } else if (!priceAboveEma50 && !priceAboveEma200 && !ema50AboveEma200 && trendStrong) {
+    marketPhase = "decline";
+    marketPhaseLabel = "Caída — tendencia bajista activa. Precio bajo medias alineadas a la baja.";
+  } else if (priceAboveEma200 && !trendStrong) {
+    marketPhase = "distribution";
+    marketPhaseLabel = "Distribución — consolidación tras subida. Medias laterales, posible techo.";
+  } else if (!priceAboveEma200 && !trendStrong) {
+    marketPhase = "accumulation";
+    marketPhaseLabel = "Acumulación — consolidación tras caída. Medias laterales, posible piso.";
+  } else if (priceAboveEma200 && ema9 < ema21) {
+    marketPhase = "distribution";
+    marketPhaseLabel = "Distribución — precio sobre EMA200 pero momentum débil. Precaución.";
+  } else if (!priceAboveEma200 && ema9 > ema21) {
+    marketPhase = "accumulation";
+    marketPhaseLabel = "Acumulación — precio bajo EMA200 pero momentum mejorando. Posible reversión.";
+  }
+
   return {
     timestamp: new Date().toISOString(),
     symbol, timeframe, price,
@@ -410,6 +445,7 @@ export function analyzeMarket(candles: Candle[], symbol: string, timeframe: stri
     ema9, ema21, ema50, ema200, rsi: rsiVal,
     atr: atrVal, atrPct, volumeRatio,
     bias, biasStrength, action, reading, forecast, details, triggerCondition,
+    marketPhase, marketPhaseLabel,
     pivotHighs: triangleResult.pivotHighs,
     pivotLows: triangleResult.pivotLows,
   };
