@@ -1,5 +1,6 @@
 """Ingesta de OHLCV desde Binance via CCXT."""
 import ccxt.async_support as ccxt
+import time as _time
 from datetime import datetime
 import structlog
 from src.core.db import get_db
@@ -12,11 +13,9 @@ class CryptoMarketData:
     def __init__(self, use_testnet: bool = False):
         env = get_env()
         self.db = get_db()
+        self._time_synced = False
         opts: dict = {
             "enableRateLimit": True,
-            # Auto-sync local clock with Binance server time on each request
-            # This prevents -1021 "Timestamp ahead of server" errors when
-            # the local machine clock drifts by >1s
             "options": {
                 "adjustForTimeDifference": True,
                 "recvWindow": 10000,  # 10s tolerance (default is 5s)
@@ -34,6 +33,18 @@ class CryptoMarketData:
                 opts["secret"] = env.binance_api_secret
             self.exchange = ccxt.binance(opts)
 
+    async def _ensure_time_sync(self) -> None:
+        """Sync local clock offset with Binance server on first call."""
+        if self._time_synced:
+            return
+        try:
+            await self.exchange.load_time_difference()
+            diff = getattr(self.exchange, 'options', {}).get('timeDifference', 0)
+            log.info("binance_time_synced", offset_ms=diff)
+        except Exception as e:
+            log.warning("binance_time_sync_failed", error=str(e))
+        self._time_synced = True
+
     async def close(self):
         await self.exchange.close()
 
@@ -44,6 +55,7 @@ class CryptoMarketData:
         limit: int = 500,
     ) -> list[dict]:
         try:
+            await self._ensure_time_sync()
             ohlcv = await self.exchange.fetch_ohlcv(symbol, timeframe, limit=limit)
             return [
                 {
@@ -63,9 +75,11 @@ class CryptoMarketData:
             return []
 
     async def fetch_ticker(self, symbol: str) -> dict:
+        await self._ensure_time_sync()
         return await self.exchange.fetch_ticker(symbol)
 
     async def fetch_orderbook(self, symbol: str, limit: int = 20) -> dict:
+        await self._ensure_time_sync()
         return await self.exchange.fetch_order_book(symbol, limit=limit)
 
     async def bid_ask_spread(self, symbol: str) -> float:
