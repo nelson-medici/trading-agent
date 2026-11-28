@@ -103,9 +103,12 @@ export default function AlertsPage() {
   async function del(ids: string[]) {
     if (!ids.length) return;
     setBusy(true);
-    await supabase.from("alerts").delete().in("id", ids);
-    setAlerts((prev) => prev.filter((a) => !ids.includes(a.id)));
+    for (const id of ids) {
+      const { error } = await supabase.from("alerts").delete().eq("id", id);
+      if (error) { console.error("delete alert failed:", id, error); break; }
+    }
     setBusy(false);
+    await load();
   }
 
   if (loading) return null;
