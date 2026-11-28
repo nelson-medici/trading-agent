@@ -90,12 +90,11 @@ async def _maybe_auto_start(store, raw: dict, candidates: list[dict], now: datet
         log.info("scalper_auto_skip", reason="kill_switch")
         return None
 
-    # Fear & Greed filter: don't auto-start in extreme fear unless RSI mode
+    # Log Fear & Greed for context (entry mode adapts automatically)
     fg = await _get_fear_greed(store)
-    min_fg = int(auto.get("min_fear_greed", 20))
-    if fg is not None and fg < min_fg:
-        log.info("scalper_auto_skip", reason="fear_greed_too_low", fear_greed=fg, min=min_fg)
-        return None
+    if fg is not None:
+        log.info("scalper_auto_start_context", fear_greed=fg,
+                 mode="both (RSI+momentum)" if fg < 25 else "auto")
 
     recent = await store.sessions_since(now - timedelta(hours=24))
     autos = [s for s in recent if s.get("auto") and s.get("status") != "rejected"]

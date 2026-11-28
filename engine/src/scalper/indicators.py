@@ -389,23 +389,24 @@ def select_scalper_mode(df: pd.DataFrame, params: dict | None = None,
                         fear_greed: int | None = None) -> str:
     """
     Selecciona el modo del scalper según el régimen del mercado.
-    - Fear & Greed < 25 → RSI (en mercados de miedo, solo buscar rebotes de sobreventa)
+    - "both" intenta RSI primero, luego momentum como fallback
+    - Fear & Greed < 25 → both (RSI preferred, momentum allowed with strong signal)
     - ADX alto (> threshold) → momentum breakout (mercado tendencial)
-    - ADX bajo → RSI reversal (mercado en rango)
+    - ADX bajo → rsi (mercado en rango)
     """
     p = merged_params(params)
     mode = p.get("scalper_mode", "auto")
-    if mode in ("momentum", "rsi"):
+    if mode in ("momentum", "rsi", "both"):
         return mode
 
-    # In extreme fear, only do RSI reversals (buy oversold bounces)
+    # In fear markets, try both: RSI preferred but allow momentum with strong signals
     if fear_greed is not None and fear_greed < 25:
-        return "rsi"
+        return "both"
 
     # Auto: decidir por ADX
     d = prepare(df).iloc[:-1]
     if len(d) < 30:
-        return "momentum"  # default si no hay datos
+        return "momentum"
 
     d5 = resample_5m(d)
     adx_val, pdi, mdi = adx(d5)
@@ -420,11 +421,31 @@ def scalper_entry(df: pd.DataFrame, bid: float, ask: float,
     """
     Punto de entrada unificado del scalper: selecciona modo y llama
     a la señal correspondiente.
+
+    Mode "both": tries RSI first (safer in fear markets), falls back
+    to momentum if RSI has no signal. Momentum in fear markets uses
+    tighter risk (reduced target_rr).
     """
     p = merged_params(params)
     mode = force_mode or select_scalper_mode(df, p, fear_greed=fear_greed)
 
-    if mode == "rsi":
+    if mode == "both":
+        # Try RSI first
+        rsi_sig = rsi_entry_signal(df, bid, ask, p)
+        if rsi_sig.ok:
+            return rsi_sig
+        # Fall back to momentum but with reduced target (more conservative in fear)
+        p_conservative = {**p, "target_rr": max(1.5, p.get("target_rr", 2) * 0.75)}
+        mom_sig = entry_signal(df, bid, ask, p_conservative)
+        if mom_sig.ok:
+            # Tag it so we know it was a fear-market momentum entry
+            mom_sig = EntrySignal(
+                True, f"[fear-momentum] {mom_sig.reason}", mom_sig.candle_ts,
+                mom_sig.entry, mom_sig.stop, mom_sig.target, mom_sig.risk_pct,
+                {**(mom_sig.extra or {}), "mode": "fear_momentum"},
+            )
+        return mom_sig
+    elif mode == "rsi":
         return rsi_entry_signal(df, bid, ask, p)
     else:
         return entry_signal(df, bid, ask, p)
