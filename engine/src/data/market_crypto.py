@@ -12,11 +12,20 @@ class CryptoMarketData:
     def __init__(self, use_testnet: bool = False):
         env = get_env()
         self.db = get_db()
-        opts = {"enableRateLimit": True}
+        opts: dict = {
+            "enableRateLimit": True,
+            # Auto-sync local clock with Binance server time on each request
+            # This prevents -1021 "Timestamp ahead of server" errors when
+            # the local machine clock drifts by >1s
+            "options": {
+                "adjustForTimeDifference": True,
+                "recvWindow": 10000,  # 10s tolerance (default is 5s)
+            },
+        }
         if use_testnet:
             opts["apiKey"] = env.binance_testnet_api_key
             opts["secret"] = env.binance_testnet_api_secret
-            opts["options"] = {"defaultType": "spot"}
+            opts["options"]["defaultType"] = "spot"
             self.exchange = ccxt.binance(opts)
             self.exchange.set_sandbox_mode(True)
         else:
