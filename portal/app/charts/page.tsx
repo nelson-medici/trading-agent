@@ -417,10 +417,9 @@ export default function ChartsPage() {
       }
     }
 
-    // Análisis actual — marcadores de patrones sobre el gráfico
+    // Análisis actual — solo marcador de acción, sin listar cada patrón
     if (analysis && candles.length > 0) {
       const lastCandle = candles[candles.length - 1];
-      // Marcador principal del análisis
       const actionColors: Record<string, string> = { BUY: "#10b981", SELL: "#ef4444", WATCH: "#f59e0b", WAIT: "#71717a" };
       const actionShapes: Record<string, "arrowUp" | "arrowDown" | "circle" | "square"> = {
         BUY: "arrowUp", SELL: "arrowDown", WATCH: "circle", WAIT: "square",
@@ -430,21 +429,8 @@ export default function ChartsPage() {
         position: analysis.action === "SELL" ? "aboveBar" : "belowBar",
         color: actionColors[analysis.action] || "#71717a",
         shape: actionShapes[analysis.action] || "square",
-        text: `${analysis.action} · ${analysis.patterns.length} patrones · ${analysis.biasStrength}%`,
+        text: `${analysis.action} ${analysis.biasStrength}%`,
       });
-
-      // Marcadores de cada patrón confirmado
-      for (const p of analysis.patterns) {
-        if (p.confirmed) {
-          m.push({
-            time: lastCandle.time,
-            position: p.bias === "bullish" ? "belowBar" : "aboveBar",
-            color: p.bias === "bullish" ? "#a78bfa" : "#fb7185",
-            shape: "circle",
-            text: `✓ ${p.name}`,
-          });
-        }
-      }
     }
 
     // Análisis guardados — marcar sobre el gráfico en sus timestamps
@@ -511,21 +497,7 @@ export default function ChartsPage() {
       }
     }
 
-    // Pattern overlay labels (from "Patrones" button)
-    if (patternOverlayActive && patternOverlay.length > 0) {
-      const lastCandle = candles[candles.length - 1];
-      if (lastCandle) {
-        for (const cp of patternOverlay) {
-          m.push({
-            time: lastCandle.time,
-            position: cp.bias === "bullish" ? "belowBar" : "aboveBar",
-            color: cp.bias === "bullish" ? "#00e676" : "#ff1744",
-            shape: cp.status === "confirmed" ? "arrowUp" : "square",
-            text: `${cp.status === "confirmed" ? "✓" : "○"} ${cp.name}`,
-          });
-        }
-      }
-    }
+    // Pattern overlay: no markers needed — zone labels at the top show pattern names
 
     // Sort markers by time (lightweight-charts lo exige)
     m.sort((a, b) => {

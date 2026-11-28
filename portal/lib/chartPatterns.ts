@@ -462,20 +462,23 @@ function detectHeadShoulders(candles: Candle[], pivots: { highs: Pivot[]; lows: 
   const price = candles[n - 1].close;
   const results: ChartPattern[] = [];
 
-  // H&S: tres picos, el del medio más alto
+  // H&S: tres picos, el del medio más alto — STRICT criteria
   if (pivots.highs.length >= 3) {
     const h = pivots.highs;
     for (let i = 0; i <= h.length - 3; i++) {
+      if (results.length >= 2) break; // max 2 H&S
       const ls = h[i];     // left shoulder
       const head = h[i + 1]; // head
       const rs = h[i + 2];   // right shoulder
 
-      // Head must be highest
-      if (head.price <= ls.price || head.price <= rs.price) continue;
-      // Shoulders should be similar height (< 3%)
-      if (pctDiff(ls.price, rs.price) > 3) continue;
-      // Minimum spacing
-      if (head.idx - ls.idx < 3 || rs.idx - head.idx < 3) continue;
+      // Head must be significantly higher than both shoulders (> 1%)
+      if (head.price <= ls.price * 1.01 || head.price <= rs.price * 1.01) continue;
+      // Shoulders should be similar height (< 2%)
+      if (pctDiff(ls.price, rs.price) > 2) continue;
+      // Minimum spacing: at least 5 bars between each pivot
+      if (head.idx - ls.idx < 5 || rs.idx - head.idx < 5) continue;
+      // Pattern shouldn't span more than 60% of visible chart
+      if (rs.idx - ls.idx > candles.length * 0.6) continue;
 
       // Find neckline (lows between shoulders)
       let neck1 = Infinity, neck2 = Infinity;
@@ -487,7 +490,7 @@ function detectHeadShoulders(candles: Candle[], pivots: { highs: Pivot[]; lows: 
       }
       const neckline = (neck1 + neck2) / 2;
       const height = head.price - neckline;
-      if (height / neckline * 100 < 1.5) continue;
+      if (height / neckline * 100 < 3) continue; // need at least 3% pattern height
 
       const confirmed = price < neckline;
       const target = neckline - height;
@@ -528,17 +531,19 @@ function detectHeadShoulders(candles: Candle[], pivots: { highs: Pivot[]; lows: 
     }
   }
 
-  // Inverse H&S: tres valles, el del medio más bajo
+  // Inverse H&S: tres valles, el del medio más bajo — STRICT
   if (pivots.lows.length >= 3) {
     const l = pivots.lows;
     for (let i = 0; i <= l.length - 3; i++) {
+      if (results.length >= 2) break; // max 2 total H&S + inv
       const ls = l[i];
       const head = l[i + 1];
       const rs = l[i + 2];
 
-      if (head.price >= ls.price || head.price >= rs.price) continue;
-      if (pctDiff(ls.price, rs.price) > 3) continue;
-      if (head.idx - ls.idx < 3 || rs.idx - head.idx < 3) continue;
+      if (head.price >= ls.price * 0.99 || head.price >= rs.price * 0.99) continue;
+      if (pctDiff(ls.price, rs.price) > 2) continue;
+      if (head.idx - ls.idx < 5 || rs.idx - head.idx < 5) continue;
+      if (rs.idx - ls.idx > candles.length * 0.6) continue;
 
       let neck1 = -Infinity, neck2 = -Infinity;
       for (let j = ls.idx + 1; j < head.idx; j++) {
@@ -549,7 +554,7 @@ function detectHeadShoulders(candles: Candle[], pivots: { highs: Pivot[]; lows: 
       }
       const neckline = (neck1 + neck2) / 2;
       const height = neckline - head.price;
-      if (height / neckline * 100 < 1.5) continue;
+      if (height / neckline * 100 < 3) continue; // need at least 3% pattern height
 
       const confirmed = price > neckline;
       const target = neckline + height;
