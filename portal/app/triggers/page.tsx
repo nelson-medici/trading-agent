@@ -190,106 +190,124 @@ export default function TriggersPage() {
             </div>
           )}
 
-          {triggers.map((t) => (
-            <div key={t.id} className={`border ${statusBg(t.status)} p-3`}>
-              <div className="flex items-start justify-between gap-3">
-                {/* Left: pattern info */}
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 mb-1">
-                    {statusIcon(t.status)}
-                    <span className="text-[13px] font-medium text-zinc-100">{t.pattern_name}</span>
-                    <span className={`text-[10px] font-medium ${biasColor(t.bias)}`}>
-                      {t.bias === "bullish" ? "▲" : "▼"} {t.bias}
-                    </span>
+          {triggers.map((t) => {
+            // Explicación "para humanos" del trigger
+            const humanExplain = (() => {
+              const sym = t.symbol.replace("/USDT", "");
+              const priceStr = t.trigger_price != null ? `$${Number(t.trigger_price).toLocaleString("en", { maximumFractionDigits: 2 })}` : "";
+
+              if (t.trigger_type === "breakout_above" && t.bias === "bullish") {
+                return `Si ${sym} sube a ${priceStr}, comprar — se espera que siga subiendo`;
+              }
+              if (t.trigger_type === "breakout_below" && t.bias === "bearish") {
+                return `Si ${sym} baja de ${priceStr}, salir o alertar — se espera más caída`;
+              }
+              if (t.trigger_type === "rsi_cross_above" && t.bias === "bullish") {
+                return `${sym} está sobrevendido — si rebota, comprar para aprovechar la recuperación`;
+              }
+              if (t.trigger_type === "rsi_cross_below" && t.bias === "bearish") {
+                return `${sym} está sobrecomprado — si cae, alertar para evitar pérdidas`;
+              }
+              if (t.trigger_type === "breakout_above") {
+                return `Esperando que ${sym} rompa ${priceStr} al alza para confirmar el patrón`;
+              }
+              if (t.trigger_type === "breakout_below") {
+                return `Esperando que ${sym} pierda ${priceStr} para confirmar la señal`;
+              }
+              return `Vigilando ${sym} — ${t.confirmation_rule}`;
+            })();
+
+            // Progress bar: tiempo restante hasta expiración
+            const progressPct = (() => {
+              if (!t.expires_at || t.status !== "watching") return 0;
+              const created = new Date(t.created_at).getTime();
+              const expires = new Date(t.expires_at).getTime();
+              const now = Date.now();
+              const total = expires - created;
+              const elapsed = now - created;
+              return Math.max(0, Math.min(100, (1 - elapsed / total) * 100));
+            })();
+
+            return (
+            <div key={t.id} className={`border ${statusBg(t.status)} overflow-hidden`}>
+              {/* Progress bar for watching triggers */}
+              {t.status === "watching" && (
+                <div className="h-0.5 bg-zinc-900">
+                  <div className="h-full bg-amber-500/60 transition-all" style={{ width: `${progressPct}%` }} />
+                </div>
+              )}
+
+              <div className="p-3">
+                {/* Row 1: Symbol + Pattern + Status badge */}
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-2">
                     <Link href={`/charts?symbol=${encodeURIComponent(t.symbol)}`}
-                      className="text-[11px] text-zinc-400 hover:text-zinc-200 font-mono flex items-center gap-0.5">
-                      {t.symbol} <ExternalLink className="w-2.5 h-2.5" />
+                      className="text-[14px] font-bold text-zinc-100 hover:text-white font-mono tracking-tight">
+                      {t.symbol.replace("/USDT", "")}
                     </Link>
-                  </div>
-
-                  {/* Confirmation rule */}
-                  <div className="text-[11px] text-zinc-400 mb-1.5">{t.confirmation_rule}</div>
-
-                  {/* Trigger details row */}
-                  <div className="flex flex-wrap gap-x-4 gap-y-1 text-[10px]">
-                    <span className="text-zinc-500">
-                      Tipo: <span className="text-zinc-300">{t.trigger_type.replace(/_/g, " ")}</span>
-                    </span>
-                    {t.trigger_price != null && (
-                      <span className="text-zinc-500">
-                        Precio: <span className="text-zinc-200 tabular-nums">${Number(t.trigger_price).toFixed(2)}</span>
-                      </span>
-                    )}
-                    {t.trigger_rsi != null && (
-                      <span className="text-zinc-500">
-                        RSI: <span className="text-zinc-200 tabular-nums">{Number(t.trigger_rsi).toFixed(0)}</span>
-                      </span>
-                    )}
-                    <span className="text-zinc-500">
-                      Pool: <span className="text-zinc-300">{t.pool}</span>
-                    </span>
-                    <span className="text-zinc-500">
-                      Acción: <span className={t.action === "BUY" ? "text-emerald-400" : "text-amber-400"}>{t.action}</span>
-                    </span>
-                    <span className="text-zinc-500">
-                      Capital: <span className="text-zinc-300 tabular-nums">${Number(t.max_capital_usd).toFixed(0)}</span>
-                    </span>
-                    {t.require_volume && (
-                      <span className="text-zinc-500">Vol ✓</span>
+                    <span className={`text-[11px] px-2 py-0.5 font-medium ${
+                      t.bias === "bullish" ? "bg-emerald-950/40 text-emerald-300" : "bg-red-950/40 text-red-300"
+                    }`}>{t.pattern_name}</span>
+                    {t.created_by === "auto_analyzer" && (
+                      <span className="text-[8px] px-1 py-0.5 bg-violet-900/30 text-violet-400 uppercase tracking-wider">auto</span>
                     )}
                   </div>
 
-                  {/* Triggered detail */}
-                  {t.status === "triggered" && t.trigger_detail && (
-                    <div className="mt-1.5 text-[10px] text-emerald-400/80 border-l-2 border-emerald-700 pl-2">
-                      {t.trigger_detail}
-                    </div>
-                  )}
+                  <div className="flex items-center gap-2">
+                    {t.status === "watching" && t.expires_at && (
+                      <span className="text-[10px] text-zinc-500 tabular-nums">
+                        {timeUntil(t.expires_at)}
+                      </span>
+                    )}
+                    <span className={`text-[9px] uppercase tracking-wider px-2 py-0.5 font-medium ${
+                      t.status === "watching" ? "bg-amber-900/40 text-amber-300" :
+                      t.status === "triggered" ? "bg-emerald-900/40 text-emerald-300" :
+                      "bg-zinc-800 text-zinc-500"
+                    }`}>{t.status === "watching" ? "vigilando" : t.status === "triggered" ? "ejecutado" : "expirado"}</span>
+                  </div>
                 </div>
 
-                {/* Right: timestamps + actions */}
-                <div className="flex flex-col items-end gap-1 flex-shrink-0">
-                  <span className={`text-[9px] uppercase tracking-wider px-1.5 py-0.5 ${
-                    t.status === "watching" ? "bg-amber-900/40 text-amber-300" :
-                    t.status === "triggered" ? "bg-emerald-900/40 text-emerald-300" :
-                    "bg-zinc-800 text-zinc-500"
-                  }`}>{t.status}</span>
+                {/* Row 2: Human explanation — the key part */}
+                <div className={`text-[12px] leading-relaxed mb-2 ${
+                  t.status === "triggered" ? "text-emerald-300" : "text-zinc-300"
+                }`}>
+                  {t.status === "triggered" && t.trigger_detail
+                    ? `✓ ${t.trigger_detail}`
+                    : humanExplain}
+                </div>
 
-                  <div className="text-[9px] text-zinc-600 tabular-nums text-right space-y-0.5">
-                    <div>Creado: {timeAgo(t.created_at)}</div>
-                    {t.expires_at && t.status === "watching" && (
-                      <div>Expira: {timeUntil(t.expires_at)}</div>
-                    )}
-                    {t.triggered_at && (
-                      <div>Disparó: {timeAgo(t.triggered_at)}</div>
-                    )}
+                {/* Row 3: Compact metadata */}
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3 text-[10px] text-zinc-600">
+                    <span>{t.timeframe}</span>
+                    <span>{t.action === "BUY" ? "🟢 Compra" : "🔔 Alerta"}</span>
+                    <span>${Number(t.max_capital_usd).toFixed(0)}</span>
+                    <span>{timeAgo(t.created_at)}</span>
                   </div>
 
-                  <div className="flex items-center gap-1 text-[9px]">
-                    <span className={`px-1 py-0.5 ${
-                      t.created_by === "auto_analyzer" ? "bg-violet-900/30 text-violet-400" :
-                      "bg-zinc-800 text-zinc-500"
-                    }`}>{t.created_by === "auto_analyzer" ? "auto" : t.created_by || "manual"}</span>
-                    <span className="text-zinc-700">{t.timeframe}</span>
-                  </div>
-
-                  {t.status === "watching" && (
-                    <button onClick={() => cancelTrigger(t.id)}
-                      className="mt-1 flex items-center gap-1 text-[9px] text-zinc-600 hover:text-red-400 transition-colors">
-                      <Trash2 className="w-3 h-3" /> cancelar
-                    </button>
-                  )}
-
-                  {t.decision_id && (
-                    <Link href={`/decisions`}
-                      className="text-[9px] text-violet-400 hover:text-violet-300 flex items-center gap-0.5">
-                      Ver decisión <ExternalLink className="w-2.5 h-2.5" />
+                  <div className="flex items-center gap-2">
+                    {t.decision_id && (
+                      <Link href="/decisions"
+                        className="text-[9px] text-violet-400 hover:text-violet-300 flex items-center gap-0.5">
+                        decisión <ExternalLink className="w-2.5 h-2.5" />
+                      </Link>
+                    )}
+                    <Link href={`/charts?symbol=${encodeURIComponent(t.symbol)}`}
+                      className="text-[9px] text-zinc-500 hover:text-zinc-300 flex items-center gap-0.5">
+                      chart <ExternalLink className="w-2.5 h-2.5" />
                     </Link>
-                  )}
+                    {t.status === "watching" && (
+                      <button onClick={() => cancelTrigger(t.id)}
+                        className="text-[9px] text-zinc-600 hover:text-red-400 flex items-center gap-0.5 transition-colors">
+                        <Trash2 className="w-3 h-3" />
+                      </button>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>
-          ))}
+            );
+          })}
         </div>
       </div>
     </Shell>
