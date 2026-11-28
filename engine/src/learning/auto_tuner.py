@@ -19,6 +19,7 @@ from datetime import datetime, timezone
 
 from .analyzer import analyze_performance
 from .optimizer import compute_adjustments, ParameterAdjustment
+from .market_intelligence import learn_from_outcomes
 
 log = structlog.get_logger()
 
@@ -41,6 +42,17 @@ async def run_auto_tuner() -> dict:
         "adjustments_applied": 0,
         "adjustments_suggested": 0,
     }
+
+    # 0. Market Intelligence: learn patterns and rules from outcomes
+    try:
+        mi_result = await learn_from_outcomes()
+        summary["intelligence"] = mi_result
+        log.info("market_intelligence_done",
+                 rules=mi_result.get("rules_generated", 0),
+                 flags=mi_result.get("flags_set", 0),
+                 stuck=mi_result.get("stuck_reports", 0))
+    except Exception as e:
+        log.error("market_intelligence_failed", error=str(e))
 
     # 1. Analyze
     try:
