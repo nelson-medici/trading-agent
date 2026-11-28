@@ -393,6 +393,74 @@ async def _analyze_symbol(db, symbol: str, timeframe: str, pool: str,
     except Exception as e:
         log.warning("auto_analyzer_advanced_patterns_error", symbol=symbol, error=str(e))
 
+    # ——————————————————————————————————————————
+    # CONTEXTUAL SCORE — gate all triggers
+    # ——————————————————————————————————————————
+    # Compute contextual score for the patterns we found/would create
+    try:
+        from src.scoring.contextual_scorer import compute_contextual_score
+
+        # Build pattern list from what we detected
+        detected_patterns = []
+        for name_key, bias_key in [
+            ("Triángulo Ascendente", "bullish"), ("Triángulo Descendente", "bearish"),
+            ("RSI Sobreventa", "bullish"), ("RSI Sobrecompra", "bearish"),
+        ]:
+            if (symbol, name_key) in active_set:
+                detected_patterns.append({"name": name_key, "bias": bias_key, "confirmed": False, "strength": 50})
+
+        # Determine structure trend from pivots
+        struct_trend = "ranging"
+        if len(pivot_highs) >= 2 and len(pivot_lows) >= 2:
+            hh = pivot_highs[-1]["price"] > pivot_highs[-2]["price"]
+            hl = pivot_lows[-1]["price"] > pivot_lows[-2]["price"]
+            lh = pivot_highs[-1]["price"] < pivot_highs[-2]["price"]
+            ll = pivot_lows[-1]["price"] < pivot_lows[-2]["price"]
+            if hh and hl:
+                struct_trend = "uptrend"
+            elif lh and ll:
+                struct_trend = "downtrend"
+
+        # Market phase
+        ema50_val = _ema(closes, 50)[-1] if len(closes) >= 50 else price
+        ema200_val = _ema(closes, 200)[-1] if len(closes) >= 200 else price
+        ema_aligned = (ema9 > ema21 > ema50_val) or (ema9 < ema21 < ema50_val)
+
+        phase = "accumulation"
+        if price > ema50_val and ema50_val > ema200_val:
+            phase = "advance"
+        elif price < ema50_val and ema50_val < ema200_val:
+            phase = "decline"
+        elif price > ema200_val:
+            phase = "distribution"
+
+        # Nearest S/R
+        sup_prices = [pl["price"] for pl in pivot_lows if pl["price"] < price]
+        res_prices = [ph["price"] for ph in pivot_highs if ph["price"] > price]
+        nearest_sup = max(sup_prices) if sup_prices else None
+        nearest_res = min(res_prices) if res_prices else None
+
+        ctx = compute_contextual_score(
+            patterns=detected_patterns,
+            phase=phase,
+            htf_bias=htf_bias,
+            volume_ratio=vol_ratio,
+            structure_trend=struct_trend,
+            rsi=rsi_val,
+            ema_aligned=ema_aligned,
+            atr_pct=atr_pct,
+            price=price,
+            nearest_support=nearest_sup,
+            nearest_resistance=nearest_res,
+        )
+
+        log.info("contextual_score_computed",
+                 symbol=symbol, score=ctx.total, action=ctx.action,
+                 label=ctx.confidence_label, reasons=ctx.reasoning[:2])
+
+    except Exception as e:
+        log.warning("contextual_score_error", symbol=symbol, error=str(e))
+
     return created
 
 

@@ -850,28 +850,62 @@ export default function ChartsPage() {
                 </div>
               </div>
 
-              {/* Fase del mercado */}
-              <div className="px-3 py-1.5 border-b border-zinc-800 flex items-center gap-2">
-                <span className={`text-[9px] uppercase tracking-wider px-2 py-0.5 font-medium ${
-                  analysis.marketPhase === "advance" ? "bg-emerald-950 text-emerald-300" :
-                  analysis.marketPhase === "decline" ? "bg-red-950 text-red-300" :
-                  analysis.marketPhase === "distribution" ? "bg-amber-950 text-amber-300" :
-                  "bg-sky-950 text-sky-300"
-                }`}>{analysis.marketPhase === "advance" ? "▲ Avance" :
-                  analysis.marketPhase === "decline" ? "▼ Caída" :
-                  analysis.marketPhase === "distribution" ? "◆ Distribución" :
-                  "◇ Acumulación"}</span>
-                <span className="text-[9px] text-zinc-600 truncate" title={analysis.marketPhaseLabel}>
-                  {analysis.marketPhaseLabel.split(".")[0]}
-                </span>
+              {/* Contextual Score — 6 barras dimensionales */}
+              <div className="px-3 py-2 border-b border-zinc-800 space-y-1">
+                {/* Score total + label */}
+                <div className="flex items-center justify-between mb-1">
+                  <div className="flex items-center gap-2">
+                    <span className={`text-[9px] uppercase tracking-wider px-2 py-0.5 font-medium ${
+                      analysis.marketPhase === "advance" ? "bg-emerald-950 text-emerald-300" :
+                      analysis.marketPhase === "decline" ? "bg-red-950 text-red-300" :
+                      analysis.marketPhase === "distribution" ? "bg-amber-950 text-amber-300" :
+                      "bg-sky-950 text-sky-300"
+                    }`}>{analysis.marketPhase === "advance" ? "▲" :
+                      analysis.marketPhase === "decline" ? "▼" :
+                      analysis.marketPhase === "distribution" ? "◆" : "◇"} {analysis.marketPhase}</span>
+                  </div>
+                  <span className={`text-[10px] font-medium ${
+                    analysis.contextScore.total >= 75 ? "text-emerald-400" :
+                    analysis.contextScore.total >= 60 ? "text-amber-400" :
+                    analysis.contextScore.total >= 40 ? "text-zinc-400" : "text-zinc-600"
+                  }`}>{analysis.contextScore.label}</span>
+                </div>
+
+                {/* 6 mini-barras */}
+                {([
+                  ["PAT", analysis.contextScore.pattern],
+                  ["FASE", analysis.contextScore.phase],
+                  ["MTF", analysis.contextScore.mtf],
+                  ["VOL", analysis.contextScore.volume],
+                  ["ESTR", analysis.contextScore.structure],
+                  ["MOM", analysis.contextScore.momentum],
+                ] as [string, number][]).map(([label, val]) => (
+                  <div key={label} className="flex items-center gap-1.5">
+                    <span className="text-[8px] uppercase tracking-wider text-zinc-600 w-7">{label}</span>
+                    <div className="flex-1 h-1.5 bg-zinc-900 overflow-hidden">
+                      <div className={`h-full ${val >= 70 ? "bg-emerald-500" : val >= 50 ? "bg-amber-500" : val >= 30 ? "bg-orange-500" : "bg-red-500"}`}
+                        style={{ width: `${val}%` }} />
+                    </div>
+                    <span className="text-[8px] tabular-nums text-zinc-500 w-5 text-right">{val}</span>
+                  </div>
+                ))}
+
+                {/* Reasons */}
+                {analysis.contextScore.reasons.length > 0 && (
+                  <div className="flex flex-wrap gap-1 mt-1">
+                    {analysis.contextScore.reasons.map((r, i) => (
+                      <span key={i} className="text-[8px] text-zinc-500 bg-zinc-900 px-1.5 py-0.5">{r}</span>
+                    ))}
+                  </div>
+                )}
               </div>
 
-              {/* PRONÓSTICO — la sección clave */}
-              <div className="px-3 py-2.5 border-b border-zinc-800 bg-zinc-900/30">
-                <div className={`text-[12px] leading-relaxed font-medium ${
+              {/* Forecast — conciso */}
+              <div className="px-3 py-2 border-b border-zinc-800">
+                <div className={`text-[11px] leading-relaxed ${
                   analysis.action === "BUY" ? "text-emerald-300" :
                   analysis.action === "SELL" ? "text-red-300" :
-                  analysis.action === "WATCH" ? "text-amber-200" : "text-zinc-400"
+                  analysis.action === "WATCH" ? "text-amber-200" : "text-zinc-500"
                 }`}>{analysis.forecast}</div>
               </div>
 

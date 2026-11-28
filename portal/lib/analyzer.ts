@@ -61,6 +61,19 @@ export interface AnalysisResult {
   marketPhase: "accumulation" | "advance" | "distribution" | "decline";
   marketPhaseLabel: string;
 
+  // Contextual Score (6 dimensiones)
+  contextScore: {
+    total: number;
+    pattern: number;
+    phase: number;
+    mtf: number;
+    volume: number;
+    structure: number;
+    momentum: number;
+    label: string;    // "Alta certeza", "Entrada fuerte", etc.
+    reasons: string[];
+  };
+
   // Pivots para dibujar triángulos y canales
   pivotHighs: { idx: number; price: number; time: string | number }[];
   pivotLows: { idx: number; price: number; time: string | number }[];
@@ -439,6 +452,101 @@ export function analyzeMarket(candles: Candle[], symbol: string, timeframe: stri
     marketPhaseLabel = "Acumulación — precio bajo EMA200 pero momentum mejorando. Posible reversión.";
   }
 
+  // ------------------------------------------------------------------
+  // CONTEXTUAL SCORE (6 dimensiones)
+  // ------------------------------------------------------------------
+  const emaAligned = (ema9 > ema21 && ema21 > ema50) || (ema9 < ema21 && ema21 < ema50);
+
+  // Structure trend
+  const ph = triangleResult.pivotHighs;
+  const pl = triangleResult.pivotLows;
+  let structTrend: "uptrend" | "downtrend" | "ranging" = "ranging";
+  if (ph.length >= 2 && pl.length >= 2) {
+    const hh = ph[ph.length - 1].price > ph[ph.length - 2].price;
+    const hl = pl[pl.length - 1].price > pl[pl.length - 2].price;
+    if (hh && hl) structTrend = "uptrend";
+    const lh = ph[ph.length - 1].price < ph[ph.length - 2].price;
+    const ll = pl[pl.length - 1].price < pl[pl.length - 2].price;
+    if (lh && ll) structTrend = "downtrend";
+  }
+
+  // Pattern base rates (from Bulkowski)
+  const patternRates: Record<string, number> = {
+    "Triángulo Ascendente": 68, "Triángulo Descendente": 58, "Triángulo Simétrico": 65,
+    "Tendencia bajista": 55, "Tendencia alcista": 55,
+    "RSI Sobreventa": 60, "RSI Sobrecompra": 60,
+    "FVG Alcista": 45, "FVG Bajista": 45,
+    "Rechazo Alcista": 50, "Rechazo Bajista": 50,
+  };
+
+  // Phase alignment bonuses
+  const phaseBonus: Record<string, Record<string, number>> = {
+    accumulation: { bullish: 20, bearish: -15 },
+    advance: { bullish: 15, bearish: -10 },
+    distribution: { bearish: 20, bullish: -15 },
+    decline: { bearish: 15, bullish: -10 },
+  };
+
+  // Calculate per-dimension scores
+  const patScores = patterns.map((p) => {
+    let s = patternRates[p.name] || 50;
+    if (p.confirmed) s += 15; else s -= 10;
+    return Math.min(100, Math.max(0, s * (p.strength / 100) + s * 0.3));
+  });
+  const csPattern = patScores.length > 0 ? patScores.reduce((a, b) => a + b, 0) / patScores.length : 30;
+
+  const phaseMod = phaseBonus[marketPhase]?.[bias] || 0;
+  const csPhase = Math.min(100, Math.max(0, 50 + phaseMod + (patterns.some((p) => p.confirmed) ? 10 : 0)));
+
+  const csMtf = 60; // No HTF available in portal — neutral
+  const isBreakout = patterns.some((p) => p.confirmed);
+  let csVolume = 50;
+  if (isBreakout && volumeRatio >= 2) csVolume = 95;
+  else if (isBreakout && volumeRatio >= 1.5) csVolume = 80;
+  else if (volumeRatio >= 1) csVolume = 60;
+  else if (volumeRatio >= 0.5) csVolume = 35;
+  else csVolume = 15;
+
+  let csStructure = 50;
+  if (structTrend === "uptrend" && bias === "bullish") csStructure = 80;
+  else if (structTrend === "downtrend" && bias === "bearish") csStructure = 80;
+  else if (structTrend === "uptrend" && bias === "bearish") csStructure = 25;
+  else if (structTrend === "downtrend" && bias === "bullish") csStructure = 30;
+
+  let csMomentum = 50;
+  if (bias === "bullish" && rsiVal < 30) csMomentum += 20;
+  if (bias === "bearish" && rsiVal > 70) csMomentum += 20;
+  if (emaAligned) csMomentum += 15;
+
+  // Weighted total
+  const csTotal = Math.min(100, Math.max(0,
+    csPattern * 0.25 + csPhase * 0.20 + csMtf * 0.15 +
+    csVolume * 0.20 + csStructure * 0.10 + csMomentum * 0.10
+  ));
+
+  const csLabel = csTotal >= 85 ? "Alta certeza" : csTotal >= 75 ? "Entrada fuerte" :
+    csTotal >= 60 ? "Entrada moderada" : csTotal >= 40 ? "Observar" : "Sin setup";
+
+  const csReasons: string[] = [];
+  if (csPattern >= 70) csReasons.push(`Patrón fuerte (${csPattern.toFixed(0)})`);
+  if (csPhase >= 70) csReasons.push(`Fase alineada (${marketPhase})`);
+  if (csVolume >= 80) csReasons.push(`Volumen confirma (${volumeRatio.toFixed(1)}×)`);
+  if (csStructure >= 70) csReasons.push(`Estructura ${structTrend}`);
+  if (csMomentum >= 70) csReasons.push(`Momentum fuerte`);
+  if (csReasons.length === 0) csReasons.push("Contexto insuficiente");
+
+  const contextScore = {
+    total: Math.round(csTotal),
+    pattern: Math.round(csPattern),
+    phase: Math.round(csPhase),
+    mtf: Math.round(csMtf),
+    volume: Math.round(csVolume),
+    structure: Math.round(csStructure),
+    momentum: Math.round(csMomentum),
+    label: csLabel,
+    reasons: csReasons,
+  };
+
   return {
     timestamp: new Date().toISOString(),
     symbol, timeframe, price,
@@ -447,6 +555,7 @@ export function analyzeMarket(candles: Candle[], symbol: string, timeframe: stri
     atr: atrVal, atrPct, volumeRatio,
     bias, biasStrength, action, reading, forecast, details, triggerCondition,
     marketPhase, marketPhaseLabel,
+    contextScore,
     pivotHighs: triangleResult.pivotHighs,
     pivotLows: triangleResult.pivotLows,
   };
