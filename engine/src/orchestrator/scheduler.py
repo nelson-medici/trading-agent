@@ -63,6 +63,10 @@ def setup_jobs() -> None:
     scheduler.add_job(jobs.run_sentiment_scan, IntervalTrigger(minutes=30), id="sentiment",
                       max_instances=1, coalesce=True)
 
+    # Prediction evaluator: evalúa predicciones vencidas cada 15 min
+    scheduler.add_job(jobs.evaluate_pending_predictions, IntervalTrigger(minutes=15), id="prediction_eval",
+                      max_instances=1, coalesce=True)
+
     # Rollovers y reports
     scheduler.add_job(jobs.backup_db, CronTrigger(hour=4, minute=0), id="backup")
     scheduler.add_job(jobs.daily_report, CronTrigger(hour=23, minute=55), id="daily")

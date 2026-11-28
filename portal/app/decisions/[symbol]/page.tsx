@@ -63,6 +63,28 @@ interface PoolConfig {
   weights: Record<string, number>;
 }
 
+interface Prediction {
+  id: string;
+  symbol: string;
+  source: string;
+  bias: string;
+  confidence: number;
+  price_at_prediction: number;
+  expected_target: number | null;
+  expected_stop: number | null;
+  expected_move_pct: number | null;
+  status: string;
+  price_at_eval: number | null;
+  actual_move_pct: number | null;
+  high_after: number | null;
+  low_after: number | null;
+  hit_target: boolean | null;
+  hit_stop: boolean | null;
+  predicted_at: string;
+  eval_at: string | null;
+  eval_window_hours: number;
+}
+
 interface Trade {
   id: string;
   symbol: string;
@@ -92,6 +114,7 @@ export default function SymbolDetailPage() {
   const [expandedDecision, setExpandedDecision] = useState<string | null>(null);
   const [features, setFeatures] = useState<Features | null>(null);
   const [poolConfig, setPoolConfig] = useState<PoolConfig | null>(null);
+  const [predictions, setPredictions] = useState<Prediction[]>([]);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -115,6 +138,10 @@ export default function SymbolDetailPage() {
       // Load features for current analysis
       const ft = await supabase.from("features").select("*").eq("symbol", symbol).order("ts", { ascending: false }).limit(1);
       if (ft.data?.[0]) setFeatures(ft.data[0] as Features);
+
+      // Load predictions
+      const pr = await supabase.from("predictions").select("*").eq("symbol", symbol).order("predicted_at", { ascending: false }).limit(50);
+      if (pr.data) setPredictions(pr.data as Prediction[]);
 
       // Load pool config for thresholds
       const pool = sc.data?.[0]?.pool;
@@ -373,6 +400,96 @@ export default function SymbolDetailPage() {
           </section>
         )}
 
+        {/* Predicciones — accuracy tracking */}
+        <section>
+          <h2 className="text-[11px] uppercase tracking-[0.2em] text-zinc-500 mb-2">// Predicción vs realidad ({predictions.length})</h2>
+          {predictions.length === 0 ? (
+            <div className="border border-zinc-800 bg-zinc-950 p-4 text-xs text-zinc-600">
+              Sin predicciones registradas. Se empiezan a generar con el próximo ciclo de scoring.
+            </div>
+          ) : (
+            <>
+              {/* Accuracy summary */}
+              {(() => {
+                const evaluated = predictions.filter(p => p.status !== "pending");
+                const correct = evaluated.filter(p => p.status === "correct").length;
+                const wrong = evaluated.filter(p => p.status === "wrong").length;
+                const partial = evaluated.filter(p => p.status === "partial").length;
+                const pending = predictions.filter(p => p.status === "pending").length;
+                const accuracy = evaluated.length > 0 ? (correct / evaluated.length * 100) : 0;
+                const avgConfidence = predictions.length > 0
+                  ? predictions.reduce((s, p) => s + (p.confidence ?? 0), 0) / predictions.length : 0;
+                return (
+                  <div className="grid grid-cols-2 md:grid-cols-5 gap-2 mb-3">
+                    <div className="border border-zinc-800 bg-zinc-950 p-3">
+                      <div className="text-[10px] uppercase tracking-wider text-zinc-500">Accuracy</div>
+                      <div className={`text-2xl font-light tabular-nums mt-1 ${accuracy >= 60 ? "text-emerald-400" : accuracy >= 40 ? "text-amber-400" : evaluated.length === 0 ? "text-zinc-500" : "text-red-400"}`}>
+                        {evaluated.length > 0 ? `${accuracy.toFixed(0)}%` : "—"}
+                      </div>
+                    </div>
+                    <div className="border border-emerald-900/50 bg-zinc-950 p-3">
+                      <div className="text-[10px] uppercase tracking-wider text-zinc-500">Correctas</div>
+                      <div className="text-2xl font-light tabular-nums mt-1 text-emerald-400">{correct}</div>
+                    </div>
+                    <div className="border border-red-900/50 bg-zinc-950 p-3">
+                      <div className="text-[10px] uppercase tracking-wider text-zinc-500">Incorrectas</div>
+                      <div className="text-2xl font-light tabular-nums mt-1 text-red-400">{wrong}</div>
+                    </div>
+                    <div className="border border-zinc-800 bg-zinc-950 p-3">
+                      <div className="text-[10px] uppercase tracking-wider text-zinc-500">Parcial / Pending</div>
+                      <div className="text-2xl font-light tabular-nums mt-1 text-zinc-400">{partial} / {pending}</div>
+                    </div>
+                    <div className="border border-zinc-800 bg-zinc-950 p-3">
+                      <div className="text-[10px] uppercase tracking-wider text-zinc-500">Confianza prom.</div>
+                      <div className="text-2xl font-light tabular-nums mt-1 text-zinc-300">{avgConfidence.toFixed(0)}</div>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* Prediction list */}
+              <div className="border border-zinc-800 bg-zinc-950 overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead className="border-b border-zinc-800 text-[10px] uppercase tracking-wider text-zinc-500">
+                    <tr>
+                      <th className="text-left px-3 py-2">Fecha</th>
+                      <th className="text-center px-2 py-2">Bias</th>
+                      <th className="text-right px-2 py-2">Conf.</th>
+                      <th className="text-right px-2 py-2">Precio</th>
+                      <th className="text-right px-2 py-2">Target</th>
+                      <th className="text-right px-2 py-2">Esperado</th>
+                      <th className="text-right px-2 py-2">Real</th>
+                      <th className="text-center px-2 py-2">Resultado</th>
+                      <th className="text-center px-2 py-2">Target?</th>
+                      <th className="text-center px-2 py-2">Stop?</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {predictions.map((p) => (
+                      <tr key={p.id} className="border-b border-zinc-900">
+                        <td className="px-3 py-2 text-[10px] text-zinc-500 tabular-nums whitespace-nowrap">{new Date(p.predicted_at).toLocaleString()}</td>
+                        <td className="px-2 py-2 text-center">
+                          <span className={`text-[10px] uppercase tracking-wider px-1.5 py-0.5 border ${p.bias === "bullish" ? "border-emerald-700 text-emerald-400" : "border-red-700 text-red-400"}`}>{p.bias === "bullish" ? "↑ bull" : "↓ bear"}</span>
+                        </td>
+                        <td className={`px-2 py-2 text-right tabular-nums ${scoreColor(p.confidence)}`}>{p.confidence?.toFixed(0) ?? "—"}</td>
+                        <td className="px-2 py-2 text-right tabular-nums text-zinc-300">${p.price_at_prediction?.toFixed(4)}</td>
+                        <td className="px-2 py-2 text-right tabular-nums text-zinc-400">{p.expected_target ? `$${p.expected_target.toFixed(4)}` : "—"}</td>
+                        <td className={`px-2 py-2 text-right tabular-nums ${(p.expected_move_pct ?? 0) >= 0 ? "text-emerald-400" : "text-red-400"}`}>{p.expected_move_pct != null ? `${p.expected_move_pct.toFixed(2)}%` : "—"}</td>
+                        <td className={`px-2 py-2 text-right tabular-nums ${(p.actual_move_pct ?? 0) >= 0 ? "text-emerald-400" : "text-red-400"}`}>{p.actual_move_pct != null ? `${p.actual_move_pct.toFixed(2)}%` : "⏳"}</td>
+                        <td className="px-2 py-2 text-center">
+                          <span className={`text-[10px] uppercase tracking-wider px-1.5 py-0.5 border ${predictionBadge(p.status)}`}>{p.status}</span>
+                        </td>
+                        <td className="px-2 py-2 text-center text-[10px]">{p.hit_target === true ? "✓" : p.hit_target === false ? "✗" : "—"}</td>
+                        <td className="px-2 py-2 text-center text-[10px]">{p.hit_stop === true ? "✓" : p.hit_stop === false ? "✗" : "—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
+        </section>
+
       </div>
     </Shell>
   );
@@ -585,6 +702,16 @@ function Indicator({ label, value, status, hint }: { label: string; value: strin
       <div className="text-[9px] text-zinc-600 mt-0.5">{hint}</div>
     </div>
   );
+}
+
+function predictionBadge(s: string): string {
+  return {
+    pending: "border-zinc-700 text-zinc-500",
+    correct: "border-emerald-700 text-emerald-400 bg-emerald-950/30",
+    wrong: "border-red-700 text-red-400 bg-red-950/30",
+    partial: "border-amber-700 text-amber-400 bg-amber-950/30",
+    expired: "border-zinc-800 text-zinc-600",
+  }[s] || "border-zinc-800 text-zinc-500";
 }
 
 function exitReasonBadge(r: string | null): string {

@@ -304,6 +304,32 @@ async def _score_pool(pool_name: str, cfg) -> None:
             scored_count += 1
             log.info("scored", pool=pool_name, symbol=symbol, score=score_total, state=state)
 
+            # Record prediction for tracking accuracy
+            if state in ("WATCHLIST", "CANDIDATE", "AGGRESSIVE") and price > 0:
+                try:
+                    from src.predictions.recorder import record_prediction
+                    bias = "bullish" if components.technical >= 60 else "bearish" if components.technical <= 40 else "neutral"
+                    await record_prediction(
+                        db, symbol=symbol, bias=bias, confidence=score_total,
+                        price=price, source="scoring", source_id=None,
+                        pool=pool_name,
+                        expected_target=target if target > 0 else None,
+                        expected_stop=stop if stop > 0 else None,
+                        eval_window_hours=4,
+                        context={
+                            "rsi": features.get("rsi"),
+                            "macd_hist": features.get("macd_hist"),
+                            "adx": features.get("adx"),
+                            "volume_ratio": features.get("volume_ratio"),
+                            "regime": features.get("regime"),
+                            "fear_greed": features.get("fear_greed"),
+                            "price_above_sma200": features.get("price_above_sma200"),
+                            "state": state,
+                        },
+                    )
+                except Exception as e:
+                    log.warning("prediction_record_skip", error=str(e))
+
         except Exception as e:
             log.error("scoring_failed", pool=pool_name, symbol=symbol, error=str(e), exc_info=True)
 
@@ -804,6 +830,15 @@ async def run_sentiment_scan() -> None:
         await run_sentiment_scan()
     except Exception as e:
         log.error("sentiment_scan_failed", error=str(e), exc_info=True)
+
+
+async def evaluate_pending_predictions() -> None:
+    """Cada 15 min. Evalúa predicciones cuya ventana expiró."""
+    try:
+        from src.predictions.evaluator import evaluate_predictions
+        await evaluate_predictions()
+    except Exception as e:
+        log.error("prediction_eval_failed", error=str(e), exc_info=True)
 
 
 # ============================================================
