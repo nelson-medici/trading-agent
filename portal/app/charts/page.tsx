@@ -7,6 +7,7 @@ import CandlestickChart, { Candle, EmaOverlay, Marker, HorizontalLine } from "@/
 import { computeEMA, formatUsd } from "@/lib/utils";
 import { detectLevels, detectFVG, detectRejections, computeVolumeProfile, type PriceLevel, type FVGZone, type Rejection, type VolumeProfileBar } from "@/lib/patterns";
 import { analyzeMarket, type AnalysisResult } from "@/lib/analyzer";
+import { detectCandlePatterns, detectMarketStructure, type CandlePattern, type StructurePoint, type MarketStructure } from "@/lib/candlePatterns";
 import { Search, TrendingUp, TrendingDown, Minus, Clock, Eye, ShoppingCart, XCircle, Save, ChevronDown, ChevronUp } from "lucide-react";
 
 const UNIVERSE_CRYPTO = ["BTC/USDT", "ETH/USDT", "SOL/USDT", "BNB/USDT", "AVAX/USDT", "LINK/USDT", "DOT/USDT", "MATIC/USDT", "ARB/USDT"];
@@ -66,6 +67,8 @@ export default function ChartsPage() {
   const [showFVG, setShowFVG] = useState(false);
   const [showRejections, setShowRejections] = useState(false);
   const [showVolProfile, setShowVolProfile] = useState(false);
+  const [showCandlePatterns, setShowCandlePatterns] = useState(false);
+  const [showStructure, setShowStructure] = useState(false);
   const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
   const [analysisOpen, setAnalysisOpen] = useState(false);
   const [savedAnalyses, setSavedAnalyses] = useState<AnalysisResult[]>([]);
@@ -218,6 +221,18 @@ export default function ChartsPage() {
     return computeVolumeProfile(candles, 24);
   }, [candles, showVolProfile]);
 
+  // Candle patterns (Marubozu, Hammer, Shooting Star, Doji, Engulfing, Dark Cloud, Harami)
+  const candlePatterns: CandlePattern[] = useMemo(() => {
+    if (!showCandlePatterns || candles.length < 10) return [];
+    return detectCandlePatterns(candles, 40);
+  }, [candles, showCandlePatterns]);
+
+  // Market structure (HH/HL/LH/LL)
+  const marketStructure: MarketStructure = useMemo(() => {
+    if (!showStructure || candles.length < 20) return { points: [], trend: "ranging" as const, description: "" };
+    return detectMarketStructure(candles, 5);
+  }, [candles, showStructure]);
+
   // Markers: trades (entry + exit) y signals
   const markers: Marker[] = useMemo(() => {
     const m: Marker[] = [];
@@ -319,6 +334,46 @@ export default function ChartsPage() {
       }
     }
 
+    // Candlestick pattern markers (Marubozu, Hammer, etc.)
+    if (showCandlePatterns) {
+      const patternColors: Record<string, string> = {
+        bullish: "#34d399", // emerald-400
+        bearish: "#fb923c", // orange-400
+      };
+      const strengthSymbols = ["·", "●", "★"];
+      for (const cp of candlePatterns) {
+        const c = candles[cp.idx];
+        if (!c) continue;
+        m.push({
+          time: c.time,
+          position: cp.bias === "bullish" ? "belowBar" : "aboveBar",
+          color: patternColors[cp.bias] || "#a78bfa",
+          shape: cp.strength >= 3 ? "arrowUp" : "circle",
+          text: `${strengthSymbols[cp.strength - 1] || "·"} ${cp.name}`,
+        });
+      }
+    }
+
+    // Market structure labels (HH/HL/LH/LL)
+    if (showStructure) {
+      const structColors: Record<string, string> = {
+        HH: "#10b981", HL: "#34d399",
+        LH: "#ef4444", LL: "#f87171",
+      };
+      for (const sp of marketStructure.points) {
+        const c = candles[sp.idx];
+        if (!c) continue;
+        const isHigh = sp.label === "HH" || sp.label === "LH";
+        m.push({
+          time: c.time,
+          position: isHigh ? "aboveBar" : "belowBar",
+          color: structColors[sp.label] || "#a78bfa",
+          shape: "square",
+          text: sp.label,
+        });
+      }
+    }
+
     // Sort markers by time (lightweight-charts lo exige)
     m.sort((a, b) => {
       const ta = typeof a.time === "string" ? new Date(a.time).getTime() : a.time;
@@ -326,7 +381,7 @@ export default function ChartsPage() {
       return ta - tb;
     });
     return m;
-  }, [trades, signals, showTrades, showSignals, showRejections, rejectionCandles, analysis, savedAnalyses, symbol, candles]);
+  }, [trades, signals, showTrades, showSignals, showRejections, rejectionCandles, analysis, savedAnalyses, symbol, candles, showCandlePatterns, candlePatterns, showStructure, marketStructure]);
 
   // Horizontal lines: posiciones + soportes/resistencias + FVGs + Volume Profile POC
   const horizontalLines: HorizontalLine[] = useMemo(() => {
@@ -340,21 +395,28 @@ export default function ChartsPage() {
       }
     }
 
-    // Soportes y resistencias
-    for (const lv of priceLevels) {
-      lines.push({
-        price: lv.price,
-        color: lv.kind === "support" ? "#22d3ee" : "#f472b6",
-        title: `${lv.kind === "support" ? "S" : "R"} (${lv.touches}t)`,
-        lineStyle: 2, // Dashed
-      });
+    // Soportes y resistencias — solo los 2 más cercanos al precio actual (1 soporte + 1 resistencia)
+    if (candles.length > 0) {
+      const curPrice = candles[candles.length - 1].close;
+      const supports = priceLevels.filter((l) => l.kind === "support").sort((a, b) => b.price - a.price);
+      const resistances = priceLevels.filter((l) => l.kind === "resistance").sort((a, b) => a.price - b.price);
+      const nearSup = supports.find((s) => s.price < curPrice);
+      const nearRes = resistances.find((r) => r.price > curPrice);
+      if (nearSup) lines.push({ price: nearSup.price, color: "#22d3ee", title: `S ${nearSup.touches}t`, lineStyle: 2 });
+      if (nearRes) lines.push({ price: nearRes.price, color: "#f472b6", title: `R ${nearRes.touches}t`, lineStyle: 2 });
     }
 
-    // FVG zones como pares de líneas (top y bottom del gap)
-    for (const fvg of fvgZones) {
-      const color = fvg.kind === "bullish" ? "#22d3ee40" : "#f472b640";
-      lines.push({ price: fvg.top, color, title: `FVG ${fvg.kind === "bullish" ? "↑" : "↓"} top`, lineStyle: 1 });
-      lines.push({ price: fvg.bottom, color, title: `FVG bottom`, lineStyle: 1 });
+    // FVG: solo el gap más cercano al precio (no todos)
+    if (fvgZones.length > 0 && candles.length > 0) {
+      const curPrice = candles[candles.length - 1].close;
+      const nearest = fvgZones.reduce((best, fvg) => {
+        const dist = Math.min(Math.abs(fvg.top - curPrice), Math.abs(fvg.bottom - curPrice));
+        const bestDist = Math.min(Math.abs(best.top - curPrice), Math.abs(best.bottom - curPrice));
+        return dist < bestDist ? fvg : best;
+      });
+      const color = nearest.kind === "bullish" ? "#22d3ee40" : "#f472b640";
+      lines.push({ price: nearest.top, color, title: `FVG ${nearest.kind === "bullish" ? "↑" : "↓"}`, lineStyle: 1 });
+      lines.push({ price: nearest.bottom, color, title: "", lineStyle: 1 });
     }
 
     // Volume Profile POC
@@ -365,45 +427,48 @@ export default function ChartsPage() {
       }
     }
 
-    // Líneas derivadas del análisis actual
+    // Líneas del análisis: solo trigger price (sin EMA200 duplicada ni S/R duplicados)
     if (analysis) {
-      // EMA200 como línea de referencia de tendencia
-      if (analysis.ema200 > 0) {
-        lines.push({ price: analysis.ema200, color: "#ec489950", title: "EMA200", lineStyle: 2 });
-      }
-
-      // Trigger level si hay patrón en formación
       for (const p of analysis.patterns) {
         if (!p.confirmed && p.confirmationRule) {
-          // Extraer precio del confirmation rule (buscar números)
           const priceMatch = p.confirmationRule.match(/(\d+[.,]?\d*)/);
           if (priceMatch) {
             const triggerPrice = parseFloat(priceMatch[1].replace(",", ""));
             if (triggerPrice > 0 && Math.abs(triggerPrice - analysis.price) / analysis.price < 0.1) {
-              lines.push({
-                price: triggerPrice,
-                color: "#f59e0b",
-                title: `⚡ ${p.name}`,
-                lineStyle: 1, // Dotted
-              });
+              lines.push({ price: triggerPrice, color: "#f59e0b", title: `⚡ trigger`, lineStyle: 1 });
             }
           }
         }
       }
+    }
 
-      // Niveles clave del análisis: soporte y resistencia más cercanos
-      const nearSup = analysis.levels.filter((l) => l.kind === "support").sort((a, b) => b.price - a.price)[0];
-      const nearRes = analysis.levels.filter((l) => l.kind === "resistance").sort((a, b) => a.price - b.price)[0];
-      if (nearSup && !priceLevels.some((l) => Math.abs(l.price - nearSup.price) / nearSup.price < 0.001)) {
-        lines.push({ price: nearSup.price, color: "#22d3ee80", title: `S* ${nearSup.touches}t`, lineStyle: 2 });
+    // Market structure: draw lines connecting pivots for channel visualization
+    if (showStructure && marketStructure.points.length >= 2) {
+      // Show the most recent high and low pivots as channel boundaries
+      const highPivots = marketStructure.points.filter((p) => p.label === "HH" || p.label === "LH");
+      const lowPivots = marketStructure.points.filter((p) => p.label === "HL" || p.label === "LL");
+      const lastHigh = highPivots[highPivots.length - 1];
+      const lastLow = lowPivots[lowPivots.length - 1];
+      if (lastHigh) {
+        lines.push({
+          price: lastHigh.price,
+          color: lastHigh.label === "HH" ? "#10b981" : "#ef4444",
+          title: `${lastHigh.label} channel`,
+          lineStyle: 1,
+        });
       }
-      if (nearRes && !priceLevels.some((l) => Math.abs(l.price - nearRes.price) / nearRes.price < 0.001)) {
-        lines.push({ price: nearRes.price, color: "#f472b680", title: `R* ${nearRes.touches}t`, lineStyle: 2 });
+      if (lastLow) {
+        lines.push({
+          price: lastLow.price,
+          color: lastLow.label === "HL" ? "#34d399" : "#f87171",
+          title: `${lastLow.label} channel`,
+          lineStyle: 1,
+        });
       }
     }
 
     return lines;
-  }, [positions, showPositionLevels, priceLevels, fvgZones, volProfile, showVolProfile, analysis]);
+  }, [positions, showPositionLevels, priceLevels, fvgZones, volProfile, showVolProfile, analysis, showStructure, marketStructure]);
 
   if (loading) return null;
 
@@ -455,6 +520,8 @@ export default function ChartsPage() {
               setShowSR(true);
               setShowFVG(true);
               setShowRejections(true);
+              setShowCandlePatterns(true);
+              setShowStructure(true);
             }}
             disabled={candles.length < 20}
             className="flex items-center gap-1.5 border border-violet-700 bg-violet-950/30 px-3 py-1 text-[10px] uppercase tracking-wider text-violet-300 hover:bg-violet-950/50 hover:border-violet-500 transition-colors disabled:opacity-30">
@@ -483,6 +550,9 @@ export default function ChartsPage() {
           <Toggle label="FVG" active={showFVG} onToggle={() => setShowFVG(!showFVG)} color="#22d3ee" />
           <Toggle label="Rechazo" active={showRejections} onToggle={() => setShowRejections(!showRejections)} color="#f472b6" />
           <Toggle label="Vol Profile" active={showVolProfile} onToggle={() => setShowVolProfile(!showVolProfile)} color="#fbbf24" />
+          <span className="text-zinc-700">|</span>
+          <Toggle label="Velas" active={showCandlePatterns} onToggle={() => setShowCandlePatterns(!showCandlePatterns)} color="#34d399" />
+          <Toggle label="Estructura" active={showStructure} onToggle={() => setShowStructure(!showStructure)} color="#818cf8" />
         </div>
 
         {/* Chart + Drawer lateral */}
@@ -504,204 +574,186 @@ export default function ChartsPage() {
             )}
           </div>
 
-          {/* Drawer de análisis (lateral derecho) */}
+          {/* Drawer de análisis (lateral derecho) — diseño visual compacto */}
           {analysis && analysisOpen && (
-            <div className="w-[340px] flex-shrink-0 border border-l-0 border-violet-800/50 bg-zinc-950 overflow-y-auto max-h-[556px] hidden lg:block">
-              {/* Drawer Header */}
+            <div className="w-[300px] flex-shrink-0 border border-l-0 border-violet-800/50 bg-zinc-950 overflow-y-auto max-h-[556px] hidden lg:block">
+              {/* Header: acción + bias + controles */}
               <div className="px-3 py-2 border-b border-violet-900/30 flex items-center justify-between bg-violet-950/20 sticky top-0 z-10 backdrop-blur">
-              <div className="flex items-center gap-3">
-                <div className="flex items-center gap-1.5">
-                  {analysis.action === "BUY" && <ShoppingCart className="w-4 h-4 text-emerald-400" />}
-                  {analysis.action === "SELL" && <XCircle className="w-4 h-4 text-red-400" />}
-                  {analysis.action === "WATCH" && <Eye className="w-4 h-4 text-amber-400" />}
-                  {analysis.action === "WAIT" && <Clock className="w-4 h-4 text-zinc-400" />}
-                  <span className={`text-sm font-medium ${
+                <div className="flex items-center gap-2">
+                  <span className={`text-base font-bold tracking-tight ${
                     analysis.action === "BUY" ? "text-emerald-400" :
                     analysis.action === "SELL" ? "text-red-400" :
-                    analysis.action === "WATCH" ? "text-amber-400" : "text-zinc-400"
+                    analysis.action === "WATCH" ? "text-amber-400" : "text-zinc-500"
                   }`}>{analysis.action}</span>
+                  <span className={`text-[10px] px-1.5 py-0.5 ${
+                    analysis.bias === "bullish" ? "bg-emerald-950 text-emerald-400" :
+                    analysis.bias === "bearish" ? "bg-red-950 text-red-400" : "bg-zinc-900 text-zinc-500"
+                  }`}>{analysis.bias === "bullish" ? "▲" : analysis.bias === "bearish" ? "▼" : "—"} {analysis.biasStrength}%</span>
                 </div>
                 <div className="flex items-center gap-1.5">
-                  {analysis.bias === "bullish" && <TrendingUp className="w-3.5 h-3.5 text-emerald-400" />}
-                  {analysis.bias === "bearish" && <TrendingDown className="w-3.5 h-3.5 text-red-400" />}
-                  {analysis.bias === "neutral" && <Minus className="w-3.5 h-3.5 text-zinc-400" />}
-                  <span className="text-[10px] uppercase tracking-wider text-zinc-500">
-                    {analysis.bias} · {analysis.biasStrength}%
-                  </span>
-                </div>
-                <span className="text-[10px] text-zinc-600">
-                  {new Date(analysis.timestamp).toLocaleTimeString()}
-                </span>
-              </div>
-              <div className="flex items-center gap-2">
-                <button onClick={() => setSavedAnalyses((prev) => [analysis, ...prev].slice(0, 20))}
-                  className="flex items-center gap-1 border border-zinc-700 px-2 py-0.5 text-[9px] uppercase tracking-wider text-zinc-400 hover:text-violet-300 hover:border-violet-700">
-                  <Save className="w-3 h-3" /> guardar
-                </button>
-                <button onClick={() => setAnalysisOpen(false)}
-                  className="text-zinc-500 hover:text-zinc-300 text-[10px] uppercase tracking-wider">
-                  cerrar
-                </button>
-              </div>
-            </div>
-
-            {/* Lectura */}
-            <div className="px-4 py-3">
-              <div className="text-[13px] text-zinc-200 leading-relaxed mb-3">{analysis.reading}</div>
-
-              {analysis.triggerCondition && (
-                <div className="border border-amber-900/40 bg-amber-950/10 px-3 py-2 mb-3 flex items-start gap-2">
-                  <Eye className="w-3.5 h-3.5 text-amber-400 mt-0.5 flex-shrink-0" />
-                  <div className="flex-1">
-                    <div className="text-[10px] uppercase tracking-wider text-amber-400 mb-0.5">Trigger · esperando confirmación</div>
-                    <div className="text-[11px] text-amber-200/80">{analysis.triggerCondition}</div>
-                  </div>
-                  <button onClick={async () => {
-                    // Encontrar el patrón no confirmado para extraer datos del trigger
-                    const pending = analysis.patterns.find((p) => !p.confirmed);
-                    if (!pending) return;
-                    // Derivar trigger_type y trigger_price de la regla
-                    let triggerType = "breakout_above";
-                    let triggerPrice = analysis.price;
-                    const nearRes = analysis.levels.find((l) => l.kind === "resistance" && l.price > analysis.price);
-                    const nearSup = analysis.levels.find((l) => l.kind === "support" && l.price < analysis.price);
-                    if (pending.bias === "bullish" && nearRes) {
-                      triggerType = "breakout_above";
-                      triggerPrice = nearRes.price;
-                    } else if (pending.bias === "bearish" && nearSup) {
-                      triggerType = "breakout_below";
-                      triggerPrice = nearSup.price;
-                    } else if (pending.name.includes("RSI") && pending.bias === "bullish") {
-                      triggerType = "rsi_cross_above";
-                    } else if (pending.name.includes("RSI") && pending.bias === "bearish") {
-                      triggerType = "rsi_cross_below";
-                    }
-                    const { error } = await supabase.from("pattern_triggers").insert({
-                      symbol,
-                      timeframe,
-                      pattern_name: pending.name,
-                      bias: pending.bias,
-                      confirmation_rule: pending.confirmationRule,
-                      trigger_type: triggerType,
-                      trigger_price: triggerType.startsWith("breakout") ? triggerPrice : null,
-                      trigger_rsi: triggerType.startsWith("rsi") ? (pending.bias === "bullish" ? 30 : 70) : null,
-                      require_volume: true,
-                      action: pending.bias === "bullish" ? "BUY" : "ALERT_ONLY",
-                      pool: "tactical",
-                      max_capital_usd: 25,
-                      expires_at: new Date(Date.now() + 24 * 3600_000).toISOString(),
-                      analysis_snapshot: analysis,
-                      created_by: "manual",
-                    });
-                    if (!error) {
-                      alert(`Trigger creado: ${pending.name} en ${symbol}. El engine lo vigila cada 1 min.`);
-                    }
-                  }}
-                    className="flex items-center gap-1 border border-amber-700 px-2.5 py-1 text-[9px] uppercase tracking-wider text-amber-300 hover:bg-amber-950/40 flex-shrink-0">
-                    <Eye className="w-3 h-3" /> vigilar
+                  <button onClick={() => setSavedAnalyses((prev) => [analysis, ...prev].slice(0, 20))}
+                    className="p-1 text-zinc-600 hover:text-violet-300" title="Guardar">
+                    <Save className="w-3.5 h-3.5" />
                   </button>
+                  <button onClick={() => setAnalysisOpen(false)}
+                    className="text-zinc-600 hover:text-zinc-300 text-lg leading-none">×</button>
                 </div>
-              )}
+              </div>
 
-              {/* Patrones detectados */}
+              {/* Indicadores como barras visuales */}
+              <div className="px-3 py-2 space-y-1.5">
+                {/* RSI gauge */}
+                <div className="flex items-center gap-2">
+                  <span className="text-[9px] uppercase tracking-wider text-zinc-600 w-8">RSI</span>
+                  <div className="flex-1 h-2 bg-zinc-900 relative overflow-hidden">
+                    <div className="absolute inset-y-0 left-0 bg-gradient-to-r from-emerald-600 via-zinc-600 to-red-600 w-full opacity-30" />
+                    <div className="absolute top-0 bottom-0 w-1 bg-white" style={{ left: `${Math.min(100, analysis.rsi)}%` }} />
+                    {/* Zonas extremas */}
+                    <div className="absolute inset-y-0 left-0 w-[30%] border-r border-emerald-500/30" />
+                    <div className="absolute inset-y-0 right-0 w-[30%] border-l border-red-500/30" />
+                  </div>
+                  <span className={`text-[11px] tabular-nums font-medium w-8 text-right ${
+                    analysis.rsi < 30 ? "text-emerald-400" : analysis.rsi > 70 ? "text-red-400" : "text-zinc-400"
+                  }`}>{analysis.rsi.toFixed(0)}</span>
+                </div>
+
+                {/* Volume bar */}
+                <div className="flex items-center gap-2">
+                  <span className="text-[9px] uppercase tracking-wider text-zinc-600 w-8">VOL</span>
+                  <div className="flex-1 h-2 bg-zinc-900 overflow-hidden">
+                    <div className={`h-full transition-all ${
+                      analysis.volumeRatio > 1.5 ? "bg-emerald-500" : analysis.volumeRatio < 0.5 ? "bg-red-500" : "bg-zinc-600"
+                    }`} style={{ width: `${Math.min(100, analysis.volumeRatio * 40)}%` }} />
+                  </div>
+                  <span className={`text-[11px] tabular-nums font-medium w-8 text-right ${
+                    analysis.volumeRatio > 1.5 ? "text-emerald-400" : analysis.volumeRatio < 0.5 ? "text-red-400" : "text-zinc-400"
+                  }`}>{analysis.volumeRatio.toFixed(1)}×</span>
+                </div>
+
+                {/* ATR bar */}
+                <div className="flex items-center gap-2">
+                  <span className="text-[9px] uppercase tracking-wider text-zinc-600 w-8">ATR</span>
+                  <div className="flex-1 h-2 bg-zinc-900 overflow-hidden">
+                    <div className="h-full bg-violet-600/60" style={{ width: `${Math.min(100, analysis.atrPct * 20)}%` }} />
+                  </div>
+                  <span className="text-[11px] tabular-nums font-medium w-8 text-right text-zinc-400">{analysis.atrPct.toFixed(2)}%</span>
+                </div>
+
+                {/* Trend: EMAs como semáforo */}
+                <div className="flex items-center gap-2">
+                  <span className="text-[9px] uppercase tracking-wider text-zinc-600 w-8">EMA</span>
+                  <div className="flex gap-1 flex-1">
+                    {/* 9>21 */}
+                    <div className={`h-2 flex-1 ${analysis.ema9 > analysis.ema21 ? "bg-emerald-500" : "bg-red-500"}`} title={`9/21 ${analysis.ema9 > analysis.ema21 ? "↑" : "↓"}`} />
+                    {/* Price vs EMA200 */}
+                    <div className={`h-2 flex-1 ${analysis.price > analysis.ema200 ? "bg-emerald-500" : "bg-red-500"}`} title={`vs EMA200 ${analysis.price > analysis.ema200 ? "↑" : "↓"}`} />
+                  </div>
+                  <span className={`text-[11px] font-medium w-8 text-right ${
+                    analysis.ema9 > analysis.ema21 && analysis.price > analysis.ema200 ? "text-emerald-400" :
+                    analysis.ema9 < analysis.ema21 && analysis.price < analysis.ema200 ? "text-red-400" : "text-amber-400"
+                  }`}>{analysis.ema9 > analysis.ema21 ? "↑" : "↓"}</span>
+                </div>
+              </div>
+
+              {/* Patrones como chips compactos */}
               {analysis.patterns.length > 0 && (
-                <div className="mb-3">
-                  <div className="text-[10px] uppercase tracking-wider text-zinc-600 mb-1.5">Patrones detectados</div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-1.5">
+                <div className="px-3 py-2 border-t border-zinc-900">
+                  <div className="flex flex-wrap gap-1">
                     {analysis.patterns.map((p, i) => (
-                      <div key={i} className={`border px-2.5 py-2 ${
+                      <span key={i} className={`inline-flex items-center gap-1 text-[10px] px-2 py-1 ${
                         p.confirmed
-                          ? p.bias === "bullish" ? "border-emerald-900 bg-emerald-950/10" : p.bias === "bearish" ? "border-red-900 bg-red-950/10" : "border-zinc-800"
-                          : "border-zinc-800 border-dashed"
-                      }`}>
-                        <div className="flex items-center justify-between">
-                          <span className="text-[11px] text-zinc-200 font-medium">{p.name}</span>
-                          <div className="flex items-center gap-1.5">
-                            <span className={`text-[9px] uppercase tracking-wider ${p.confirmed ? "text-lime-400" : "text-zinc-600"}`}>
-                              {p.confirmed ? "confirmado" : "en formación"}
-                            </span>
-                            <span className="text-[9px] tabular-nums text-zinc-500">{p.strength}%</span>
-                          </div>
-                        </div>
-                        <div className="text-[10px] text-zinc-500 mt-0.5">{p.description}</div>
-                        {!p.confirmed && (
-                          <div className="text-[10px] text-amber-400/70 mt-1">→ {p.confirmationRule}</div>
-                        )}
-                      </div>
+                          ? p.bias === "bullish" ? "bg-emerald-950/40 text-emerald-300 border border-emerald-800/50"
+                          : p.bias === "bearish" ? "bg-red-950/40 text-red-300 border border-red-800/50"
+                          : "bg-zinc-900 text-zinc-400 border border-zinc-800"
+                          : "bg-zinc-900/50 text-zinc-500 border border-zinc-800/50 border-dashed"
+                      }`} title={p.description}>
+                        <span className={`w-1.5 h-1.5 rounded-full ${p.confirmed ? "bg-current" : "bg-zinc-600"}`} />
+                        {p.name}
+                        <span className="text-[8px] opacity-60">{p.strength}%</span>
+                      </span>
                     ))}
                   </div>
                 </div>
               )}
 
-              {/* Detalles */}
-              <details className="group">
-                <summary className="text-[10px] uppercase tracking-wider text-zinc-600 cursor-pointer hover:text-zinc-400 flex items-center gap-1">
-                  <ChevronDown className="w-3 h-3 group-open:hidden" />
-                  <ChevronUp className="w-3 h-3 hidden group-open:inline" />
-                  Indicadores y detalle
-                </summary>
-                <div className="mt-2 grid grid-cols-2 md:grid-cols-4 gap-2 text-[11px]">
-                  <div className="bg-zinc-900/50 px-2 py-1.5">
-                    <span className="text-zinc-600">EMA9/21</span>
-                    <span className={`ml-2 tabular-nums ${analysis.ema9 > analysis.ema21 ? "text-emerald-400" : "text-red-400"}`}>
-                      {analysis.ema9 > analysis.ema21 ? "↑ alcista" : "↓ bajista"}
-                    </span>
-                  </div>
-                  <div className="bg-zinc-900/50 px-2 py-1.5">
-                    <span className="text-zinc-600">RSI</span>
-                    <span className={`ml-2 tabular-nums ${analysis.rsi < 30 ? "text-emerald-400" : analysis.rsi > 70 ? "text-red-400" : "text-zinc-300"}`}>
-                      {analysis.rsi.toFixed(0)}
-                    </span>
-                  </div>
-                  <div className="bg-zinc-900/50 px-2 py-1.5">
-                    <span className="text-zinc-600">ATR</span>
-                    <span className="ml-2 tabular-nums text-zinc-300">{analysis.atrPct.toFixed(2)}%</span>
-                  </div>
-                  <div className="bg-zinc-900/50 px-2 py-1.5">
-                    <span className="text-zinc-600">Vol</span>
-                    <span className={`ml-2 tabular-nums ${analysis.volumeRatio > 1.5 ? "text-emerald-400" : analysis.volumeRatio < 0.5 ? "text-red-400" : "text-zinc-300"}`}>
-                      {analysis.volumeRatio.toFixed(1)}×
-                    </span>
-                  </div>
-                </div>
-                <ul className="mt-2 space-y-0.5">
-                  {analysis.details.map((d, i) => (
-                    <li key={i} className="text-[11px] text-zinc-400 flex gap-1.5">
-                      <span className="text-zinc-600">▸</span> {d}
-                    </li>
-                  ))}
-                </ul>
-              </details>
-            </div>
-          </div>
-        )}
-        </div>
-
-        {/* Panel de análisis mobile (debajo del chart en pantallas chicas) */}
-        {analysis && analysisOpen && (
-          <div className="lg:hidden border border-violet-800/50 bg-zinc-950 overflow-hidden">
-            <div className="px-3 py-2 border-b border-violet-900/30 flex items-center justify-between bg-violet-950/20">
-              <div className="flex items-center gap-2">
-                <span className={`text-sm font-medium ${
-                  analysis.action === "BUY" ? "text-emerald-400" : analysis.action === "SELL" ? "text-red-400" :
-                  analysis.action === "WATCH" ? "text-amber-400" : "text-zinc-400"
-                }`}>{analysis.action}</span>
-                <span className="text-[10px] text-zinc-500">{analysis.bias} · {analysis.biasStrength}%</span>
-              </div>
-              <button onClick={() => setAnalysisOpen(false)} className="text-zinc-500 text-[10px] uppercase">cerrar</button>
-            </div>
-            <div className="px-3 py-2">
-              <div className="text-[12px] text-zinc-200 leading-relaxed">{analysis.reading}</div>
-              {analysis.patterns.length > 0 && (
-                <div className="mt-2 flex flex-wrap gap-1">
-                  {analysis.patterns.map((p, i) => (
-                    <span key={i} className={`text-[9px] border px-1.5 py-0.5 ${p.confirmed ? "border-violet-700 text-violet-300" : "border-zinc-800 text-zinc-500"}`}>
-                      {p.confirmed ? "✓" : "○"} {p.name}
-                    </span>
-                  ))}
+              {/* Trigger — compacto */}
+              {analysis.triggerCondition && (
+                <div className="px-3 py-2 border-t border-amber-900/30 bg-amber-950/5 flex items-center gap-2">
+                  <Eye className="w-3 h-3 text-amber-400 flex-shrink-0" />
+                  <span className="text-[10px] text-amber-200/80 flex-1 truncate">{analysis.triggerCondition}</span>
+                  <button onClick={async () => {
+                    const pending = analysis.patterns.find((p) => !p.confirmed);
+                    if (!pending) return;
+                    let triggerType = "breakout_above";
+                    let triggerPrice = analysis.price;
+                    const nearRes = analysis.levels.find((l) => l.kind === "resistance" && l.price > analysis.price);
+                    const nearSup = analysis.levels.find((l) => l.kind === "support" && l.price < analysis.price);
+                    if (pending.bias === "bullish" && nearRes) { triggerType = "breakout_above"; triggerPrice = nearRes.price; }
+                    else if (pending.bias === "bearish" && nearSup) { triggerType = "breakout_below"; triggerPrice = nearSup.price; }
+                    else if (pending.name.includes("RSI") && pending.bias === "bullish") triggerType = "rsi_cross_above";
+                    else if (pending.name.includes("RSI") && pending.bias === "bearish") triggerType = "rsi_cross_below";
+                    const { error } = await supabase.from("pattern_triggers").insert({
+                      symbol, timeframe, pattern_name: pending.name, bias: pending.bias,
+                      confirmation_rule: pending.confirmationRule, trigger_type: triggerType,
+                      trigger_price: triggerType.startsWith("breakout") ? triggerPrice : null,
+                      trigger_rsi: triggerType.startsWith("rsi") ? (pending.bias === "bullish" ? 30 : 70) : null,
+                      require_volume: true, action: pending.bias === "bullish" ? "BUY" : "ALERT_ONLY",
+                      pool: "tactical", max_capital_usd: 25,
+                      expires_at: new Date(Date.now() + 24 * 3600_000).toISOString(),
+                      analysis_snapshot: analysis, created_by: "manual",
+                    });
+                    if (!error) alert(`Trigger creado: ${pending.name} en ${symbol}`);
+                  }}
+                    className="text-[9px] uppercase tracking-wider text-amber-400 hover:text-amber-200 flex-shrink-0">
+                    vigilar
+                  </button>
                 </div>
               )}
+
+              {/* Reading — solo si es importante (no WAIT) */}
+              {analysis.action !== "WAIT" && (
+                <div className="px-3 py-2 border-t border-zinc-900">
+                  <div className="text-[11px] text-zinc-400 leading-relaxed">{analysis.reading}</div>
+                </div>
+              )}
+
+              {/* Timestamp */}
+              <div className="px-3 py-1.5 border-t border-zinc-900 text-[9px] text-zinc-700 tabular-nums">
+                {new Date(analysis.timestamp).toLocaleTimeString()} · {analysis.patterns.filter((p) => p.confirmed).length}/{analysis.patterns.length} confirmados
+              </div>
             </div>
+          )}
+        </div>
+
+        {/* Panel mobile: compacto visual */}
+        {analysis && analysisOpen && (
+          <div className="lg:hidden border border-violet-800/50 bg-zinc-950 overflow-hidden">
+            <div className="px-3 py-2 flex items-center justify-between bg-violet-950/20">
+              <div className="flex items-center gap-2">
+                <span className={`text-sm font-bold ${
+                  analysis.action === "BUY" ? "text-emerald-400" : analysis.action === "SELL" ? "text-red-400" :
+                  analysis.action === "WATCH" ? "text-amber-400" : "text-zinc-500"
+                }`}>{analysis.action}</span>
+                <span className={`text-[10px] px-1.5 py-0.5 ${
+                  analysis.bias === "bullish" ? "bg-emerald-950 text-emerald-400" :
+                  analysis.bias === "bearish" ? "bg-red-950 text-red-400" : "bg-zinc-900 text-zinc-500"
+                }`}>{analysis.biasStrength}%</span>
+                <span className={`text-[10px] tabular-nums ${analysis.rsi < 30 ? "text-emerald-400" : analysis.rsi > 70 ? "text-red-400" : "text-zinc-500"}`}>RSI {analysis.rsi.toFixed(0)}</span>
+                <span className={`text-[10px] tabular-nums ${analysis.volumeRatio > 1.5 ? "text-emerald-400" : "text-zinc-500"}`}>Vol {analysis.volumeRatio.toFixed(1)}×</span>
+              </div>
+              <button onClick={() => setAnalysisOpen(false)} className="text-zinc-600 text-lg leading-none">×</button>
+            </div>
+            {analysis.patterns.length > 0 && (
+              <div className="px-3 py-1.5 flex flex-wrap gap-1 border-t border-zinc-900">
+                {analysis.patterns.map((p, i) => (
+                  <span key={i} className={`text-[9px] px-1.5 py-0.5 ${p.confirmed
+                    ? p.bias === "bullish" ? "bg-emerald-950/40 text-emerald-300" : "bg-red-950/40 text-red-300"
+                    : "bg-zinc-900 text-zinc-500 border border-dashed border-zinc-800"}`}>
+                    {p.name}
+                  </span>
+                ))}
+              </div>
+            )}
           </div>
         )}
 
