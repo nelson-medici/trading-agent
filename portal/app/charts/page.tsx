@@ -11,7 +11,14 @@ import { detectCandlePatterns, detectMarketStructure, type CandlePattern, type S
 import { detectChartPatterns, type ChartPattern } from "@/lib/chartPatterns";
 import { Search, TrendingUp, TrendingDown, Minus, Clock, Eye, ShoppingCart, XCircle, Save, ChevronDown, ChevronUp } from "lucide-react";
 
-const UNIVERSE_CRYPTO = ["BTC/USDT", "ETH/USDT", "SOL/USDT", "BNB/USDT", "AVAX/USDT", "LINK/USDT", "DOT/USDT", "MATIC/USDT", "ARB/USDT"];
+const UNIVERSE_CRYPTO = [
+  "BTC/USDT", "ETH/USDT", "SOL/USDT", "BNB/USDT", "XRP/USDT",
+  "DOGE/USDT", "ADA/USDT", "AVAX/USDT", "LINK/USDT", "DOT/USDT",
+  "SUI/USDT", "NEAR/USDT", "UNI/USDT", "LTC/USDT", "PEPE/USDT",
+  "TRX/USDT", "HYPE/USDT", "ENA/USDT", "ARB/USDT", "MATIC/USDT",
+  "OP/USDT", "FIL/USDT", "ATOM/USDT", "APT/USDT", "INJ/USDT",
+  "TIA/USDT", "SEI/USDT", "FET/USDT", "RENDER/USDT", "WLD/USDT",
+];
 const UNIVERSE_EQUITIES = ["SPY", "QQQ", "AAPL", "MSFT", "NVDA", "TSLA", "META", "AMZN"];
 
 interface Trade {
