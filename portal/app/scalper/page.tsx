@@ -224,21 +224,21 @@ export default function ScalperPage() {
                   {live.status === "requested" ? "Esperando al engine…" : "Sesión en curso"}
                   {live.auto && <span className="border border-violet-600 text-violet-300 px-1.5 py-0.5 tracking-wider">auto</span>}
                 </div>
-                <div className="text-2xl text-zinc-100 mt-1 flex items-center gap-3">
-                  {live.symbol}
-                  <Link href={`/charts?symbol=${encodeURIComponent(live.symbol)}`}
-                    className="text-[10px] uppercase tracking-wider border border-zinc-700 text-zinc-400 hover:text-lime-400 hover:border-lime-700 px-2 py-1 flex items-center gap-1">
-                    <BarChart3 className="w-3 h-3" /> chart
-                  </Link>
-                </div>
+                <div className="text-2xl text-zinc-100 mt-1">{live.symbol}</div>
                 <div className="text-[10px] text-zinc-500 mt-0.5">
                   {live.duration_min} min · capital {formatUsd(Number(live.capital_usd ?? live.max_capital_usd))} · máx {live.max_trades} trades
                 </div>
               </div>
-              <button onClick={stop} disabled={busy || live.stop_requested}
-                className="border border-red-700 text-red-300 hover:bg-red-950/40 px-4 py-2 text-xs uppercase tracking-wider flex items-center gap-2 disabled:opacity-50">
-                <Square className="w-3 h-3" /> {live.stop_requested ? "Deteniendo…" : "Detener ahora"}
-              </button>
+              <div className="flex items-center gap-2">
+                <Link href={`/charts?symbol=${encodeURIComponent(live.symbol)}`}
+                  className="border border-zinc-700 text-zinc-400 hover:text-lime-400 hover:border-lime-700 px-4 py-2 text-xs uppercase tracking-wider flex items-center gap-2">
+                  <BarChart3 className="w-3 h-3" /> Chart
+                </Link>
+                <button onClick={stop} disabled={busy || live.stop_requested}
+                  className="border border-red-700 text-red-300 hover:bg-red-950/40 px-4 py-2 text-xs uppercase tracking-wider flex items-center gap-2 disabled:opacity-50">
+                  <Square className="w-3 h-3" /> {live.stop_requested ? "Deteniendo…" : "Detener ahora"}
+                </button>
+              </div>
             </div>
 
             {live.status === "active" && (
