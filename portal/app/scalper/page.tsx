@@ -317,54 +317,73 @@ export default function ScalperPage() {
         <section>
           <div className="flex items-center justify-between mb-2">
             <h2 className="text-[11px] uppercase tracking-[0.2em] text-zinc-500 flex items-center gap-2"><Radar className="w-3.5 h-3.5" /> // Radar de oportunidades</h2>
-            <span className="text-[10px] text-zinc-600">alerta desde score {threshold} · se actualiza cada 3 min</span>
+            <span className="text-[10px] text-zinc-600">umbral {threshold} · cada 3 min</span>
           </div>
           {scan.length === 0 ? (
             <div className="border border-zinc-800 bg-zinc-950 p-4 text-xs text-zinc-600">Sin lecturas todavía. El detector corre con el engine prendido.</div>
           ) : (
-            <div className="border border-zinc-800 bg-zinc-950 overflow-x-auto">
-              <table className="w-full text-xs">
-                <thead className="border-b border-zinc-800 text-[10px] uppercase tracking-wider text-zinc-500">
-                  <tr>
-                    <th className="text-left px-3 py-2">Símbolo</th>
-                    <th className="text-right px-2 py-2">Score</th>
-                    <th className="text-right px-2 py-2">Volat.</th>
-                    <th className="text-right px-2 py-2">Volumen</th>
-                    <th className="text-right px-2 py-2">Rango</th>
-                    <th className="text-right px-2 py-2">Tendencia</th>
-                    <th className="text-left px-3 py-2">Lectura</th>
-                    <th className="text-right px-2 py-2">Act.</th>
-                    <th className="px-2"></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {scan.map((r) => {
-                    const stale = now - new Date(r.updated_at).getTime() > 10 * 60_000;
-                    const c = r.components || {};
-                    return (
-                      <tr key={r.symbol} className={`border-b border-zinc-900 ${stale ? "opacity-40" : ""}`}>
-                        <td className="px-3 py-2 text-zinc-100 font-medium">{r.symbol}</td>
-                        <td className={`px-2 py-2 text-right tabular-nums text-sm ${Number(r.score) >= threshold ? "text-lime-400" : Number(r.score) >= 60 ? "text-amber-400" : "text-zinc-500"}`}>{Number(r.score).toFixed(0)}</td>
-                        <td className="px-2 py-2 text-right tabular-nums text-zinc-400">{num(c.volatility)}</td>
-                        <td className="px-2 py-2 text-right tabular-nums text-zinc-400">{num(c.volume)} <span className="text-zinc-600 text-[10px]">({c.vol_ratio ?? "—"}×)</span></td>
-                        <td className="px-2 py-2 text-right tabular-nums text-zinc-400">{num(c.range)}</td>
-                        <td className="px-2 py-2 text-right tabular-nums text-zinc-400">{num(c.trend)} <span className="text-zinc-600 text-[10px]">{c.up_bias ? "↑" : "↓"}</span></td>
-                        <td className="px-3 py-2 text-[10px] text-zinc-500">{r.note || (Number(r.score) >= threshold ? "apto para sesión" : "—")}</td>
-                        <td className="px-2 py-2 text-right text-[10px] text-zinc-600 tabular-nums">{ago(r.updated_at, now)}</td>
-                        <td className="px-2 py-2 text-right">
-                          {!live && <button onClick={() => { setSymbol(r.symbol); window.scrollTo({ top: 0, behavior: "smooth" }); }} className="text-[10px] uppercase tracking-wider text-lime-400 hover:underline">usar</button>}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+            <div className="space-y-1.5">
+              {[...scan].sort((a, b) => Number(b.score) - Number(a.score)).map((r) => {
+                const score = Number(r.score);
+                const stale = now - new Date(r.updated_at).getTime() > 10 * 60_000;
+                const c = r.components || {};
+                const pct = Math.min(100, (score / threshold) * 100);
+                const isHot = score >= threshold;
+                const isWarm = score >= threshold * 0.8 && !isHot;
+                const barColor = isHot ? "bg-lime-500" : isWarm ? "bg-amber-500" : "bg-zinc-700";
+                const textColor = isHot ? "text-lime-400" : isWarm ? "text-amber-400" : "text-zinc-500";
+                const label = isHot ? "APTO" : isWarm ? "CERCA" : score >= threshold * 0.5 ? "TIBIO" : "FRÍO";
+                const labelColor = isHot ? "text-lime-900 bg-lime-400" : isWarm ? "text-amber-900 bg-amber-400" : "text-zinc-400 bg-zinc-800";
+
+                return (
+                  <div key={r.symbol} className={`border border-zinc-800 bg-zinc-950 px-3 py-2.5 ${stale ? "opacity-40" : ""} ${isHot ? "border-lime-900/50 bg-lime-950/10" : isWarm ? "border-amber-900/30" : ""}`}>
+                    <div className="flex items-center gap-3">
+                      {/* Symbol + label */}
+                      <div className="w-24 flex-shrink-0">
+                        <div className="text-sm text-zinc-100 font-medium">{r.symbol.replace("/USDT", "")}</div>
+                        <span className={`text-[8px] font-bold uppercase tracking-wider px-1.5 py-0.5 ${labelColor}`}>{label}</span>
+                      </div>
+
+                      {/* Score + bar */}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-baseline gap-2 mb-1">
+                          <span className={`text-lg font-light tabular-nums ${textColor}`}>{score.toFixed(0)}</span>
+                          <span className="text-[10px] text-zinc-600">/ {threshold}</span>
+                          {isHot && <span className="text-[9px] text-lime-500 animate-pulse">● listo para operar</span>}
+                          {isWarm && <span className="text-[9px] text-amber-500">a {(threshold - score).toFixed(0)} pts</span>}
+                        </div>
+                        <div className="h-1.5 bg-zinc-900 w-full overflow-hidden">
+                          <div className={`h-full ${barColor} transition-all duration-500`} style={{ width: `${pct}%` }} />
+                        </div>
+                      </div>
+
+                      {/* Key metrics */}
+                      <div className="hidden md:flex items-center gap-3 text-[10px] text-zinc-500 flex-shrink-0">
+                        <span title="Volumen relativo">Vol {c.vol_ratio ?? "—"}×</span>
+                        <span title="ATR %">ATR {c.atr_pct ?? "—"}%</span>
+                        <span title="Tendencia">{c.up_bias ? "↑" : "↓"} {num(c.trend)}</span>
+                        <span className="text-zinc-700">{ago(r.updated_at, now)}</span>
+                      </div>
+
+                      {/* Action */}
+                      <div className="flex-shrink-0">
+                        {!live && (
+                          <button onClick={() => { setSymbol(r.symbol); window.scrollTo({ top: 0, behavior: "smooth" }); }}
+                            className={`text-[10px] uppercase tracking-wider px-2 py-1 border ${isHot ? "border-lime-700 text-lime-400 hover:bg-lime-950/40" : "border-zinc-800 text-zinc-500 hover:text-zinc-300"}`}>
+                            {isHot ? "operar" : "ver"}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           )}
           {opps.length > 0 && (
             <div className="mt-2 text-[10px] text-zinc-500 flex flex-wrap gap-2">
               <span className="uppercase tracking-wider text-zinc-600">avisos últimas 2h:</span>
-              {opps.map((o) => <span key={o.id} className="border border-zinc-800 px-1.5 py-0.5">{o.symbol} · {Number(o.score).toFixed(0)} · {ago(o.detected_at, now)}</span>)}
+              {opps.map((o) => <span key={o.id} className={`border px-1.5 py-0.5 ${Number(o.score) >= threshold ? "border-lime-800 text-lime-400" : "border-zinc-800"}`}>{o.symbol} · {Number(o.score).toFixed(0)} · {ago(o.detected_at, now)}</span>)}
             </div>
           )}
         </section>
