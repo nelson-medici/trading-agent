@@ -73,6 +73,8 @@ export default function ChartsPage() {
   const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
   const [analysisOpen, setAnalysisOpen] = useState(false);
   const [savedAnalyses, setSavedAnalyses] = useState<AnalysisResult[]>([]);
+  const [patternOverlay, setPatternOverlay] = useState<ChartPattern[]>([]);
+  const [patternOverlayActive, setPatternOverlayActive] = useState(false);
 
   // Límites por timeframe: 1m→120 (2h), 5m→120 (10h), 15m+→500
   const limitOptions: Record<string, number[]> = {
@@ -290,7 +292,7 @@ export default function ChartsPage() {
       }
     }
 
-    // Chart pattern lines (Flag, Double Top, Wedge, H&S, Rectangle)
+    // Chart pattern lines from analysis (Flag, Double Top, Wedge, H&S, Rectangle)
     for (const cp of chartPatternsDetected) {
       for (const pl of cp.lines) {
         lines.push({
@@ -300,20 +302,88 @@ export default function ChartsPage() {
           lineStyle: pl.style === "dotted" ? 1 as any : pl.style === "dashed" ? 2 as any : 0 as any,
         });
       }
-      // Projection line (target)
       if (cp.projectionLine) {
         lines.push({
           points: cp.projectionLine.points,
           color: cp.projectionLine.color,
           lineWidth: cp.projectionLine.lineWidth ?? 2,
-          lineStyle: 1 as any, // Dotted
+          lineStyle: 1 as any,
           title: `→ $${cp.target?.toFixed(0) ?? ""}`,
         });
       }
     }
 
+    // Pattern overlay (from "Patrones" button) — high contrast lines
+    if (patternOverlayActive) {
+      // Colores de alto contraste por tipo de patrón
+      const overlayColors: Record<string, string> = {
+        "Bull Flag": "#00e676",
+        "Bear Flag": "#ff1744",
+        "Double Top": "#ff5252",
+        "Double Bottom": "#69f0ae",
+        "Head & Shoulders": "#ff6e40",
+        "Inverse Head & Shoulders": "#00e5ff",
+        "Rising Wedge": "#ff9100",
+        "Falling Wedge": "#00bfa5",
+        "Rectangle Breakout Up": "#76ff03",
+        "Rectangle Breakout Down": "#f50057",
+        "Rectangle": "#7c4dff",
+      };
+
+      for (const cp of patternOverlay) {
+        const baseColor = overlayColors[cp.nameEn] ?? (cp.bias === "bullish" ? "#00e676" : "#ff1744");
+        for (const pl of cp.lines) {
+          lines.push({
+            points: pl.points,
+            color: baseColor,
+            lineWidth: (pl.lineWidth ?? 1) + 1, // más gruesas que las normales
+            lineStyle: pl.style === "dotted" ? 1 as any : pl.style === "dashed" ? 2 as any : 0 as any,
+            title: cp.name,
+          });
+        }
+        // Projection
+        if (cp.projectionLine) {
+          lines.push({
+            points: cp.projectionLine.points,
+            color: baseColor + "80",
+            lineWidth: 2,
+            lineStyle: 1 as any,
+            title: `${cp.name} → $${cp.target?.toFixed(0) ?? ""}`,
+          });
+        }
+        // Neckline
+        if (cp.neckline && candles.length > 0) {
+          const firstTime = candles[Math.max(0, candles.length - 50)].time;
+          const lastTime = candles[candles.length - 1].time;
+          lines.push({
+            points: [
+              { time: firstTime, value: cp.neckline },
+              { time: lastTime, value: cp.neckline },
+            ],
+            color: "#ffd740",
+            lineWidth: 1,
+            lineStyle: 2 as any,
+            title: `Neckline $${cp.neckline.toFixed(0)}`,
+          });
+        }
+        // Entry / Stop / Target horizontal lines
+        if (cp.entry) {
+          lines.push({
+            points: [
+              { time: candles[candles.length - 1]?.time ?? 0, value: cp.entry },
+              { time: candles[candles.length - 1]?.time ?? 0, value: cp.entry },
+            ],
+            color: "#ffffff40",
+            lineWidth: 1,
+            lineStyle: 2 as any,
+            title: `Entry $${cp.entry.toFixed(0)}`,
+          });
+        }
+      }
+    }
+
     return lines;
-  }, [analysis, showStructure, marketStructure, chartPatternsDetected]);
+  }, [analysis, showStructure, marketStructure, chartPatternsDetected, patternOverlayActive, patternOverlay, candles]);
 
   // Markers: trades (entry + exit) y signals
   const markers: Marker[] = useMemo(() => {
@@ -456,6 +526,22 @@ export default function ChartsPage() {
       }
     }
 
+    // Pattern overlay labels (from "Patrones" button)
+    if (patternOverlayActive && patternOverlay.length > 0) {
+      const lastCandle = candles[candles.length - 1];
+      if (lastCandle) {
+        for (const cp of patternOverlay) {
+          m.push({
+            time: lastCandle.time,
+            position: cp.bias === "bullish" ? "belowBar" : "aboveBar",
+            color: cp.bias === "bullish" ? "#00e676" : "#ff1744",
+            shape: cp.status === "confirmed" ? "arrowUp" : "square",
+            text: `${cp.status === "confirmed" ? "✓" : "○"} ${cp.name}`,
+          });
+        }
+      }
+    }
+
     // Sort markers by time (lightweight-charts lo exige)
     m.sort((a, b) => {
       const ta = typeof a.time === "string" ? new Date(a.time).getTime() : a.time;
@@ -463,7 +549,7 @@ export default function ChartsPage() {
       return ta - tb;
     });
     return m;
-  }, [trades, signals, showTrades, showSignals, showRejections, rejectionCandles, analysis, savedAnalyses, symbol, candles, showCandlePatterns, candlePatterns, showStructure, marketStructure]);
+  }, [trades, signals, showTrades, showSignals, showRejections, rejectionCandles, analysis, savedAnalyses, symbol, candles, showCandlePatterns, candlePatterns, showStructure, marketStructure, patternOverlayActive, patternOverlay]);
 
   // Horizontal lines: posiciones + soportes/resistencias + FVGs + Volume Profile POC
   const horizontalLines: HorizontalLine[] = useMemo(() => {
@@ -583,6 +669,32 @@ export default function ChartsPage() {
             disabled={candles.length < 20}
             className="flex items-center gap-1.5 border border-violet-700 bg-violet-950/30 px-3 py-1 text-[10px] uppercase tracking-wider text-violet-300 hover:bg-violet-950/50 hover:border-violet-500 transition-colors disabled:opacity-30">
             <Search className="w-3 h-3" /> Analizar
+          </button>
+
+          <button onClick={() => {
+              if (candles.length < 20) return;
+              if (patternOverlayActive) {
+                // Limpiar
+                setPatternOverlay([]);
+                setPatternOverlayActive(false);
+                setShowCandlePatterns(false);
+                setShowStructure(false);
+              } else {
+                // Detectar todos los patrones y dibujarlos
+                const cp = detectChartPatterns(candles);
+                setPatternOverlay(cp);
+                setPatternOverlayActive(true);
+                setShowCandlePatterns(true);
+                setShowStructure(true);
+              }
+            }}
+            disabled={candles.length < 20}
+            className={`flex items-center gap-1.5 border px-3 py-1 text-[10px] uppercase tracking-wider transition-colors disabled:opacity-30 ${
+              patternOverlayActive
+                ? "border-cyan-500 text-cyan-300 bg-cyan-950/40"
+                : "border-cyan-800 bg-cyan-950/20 text-cyan-400 hover:bg-cyan-950/40 hover:border-cyan-600"
+            }`}>
+            <Eye className="w-3 h-3" /> {patternOverlayActive ? "Limpiar" : "Patrones"}
           </button>
 
           <div className="ml-auto flex items-center gap-2 text-[11px] text-zinc-500">
@@ -808,6 +920,61 @@ export default function ChartsPage() {
             </div>
           )}
         </div>
+
+        {/* Pattern overlay summary */}
+        {patternOverlayActive && patternOverlay.length > 0 && (
+          <div className="border border-cyan-800/50 bg-cyan-950/10 p-3">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-[10px] uppercase tracking-wider text-cyan-400">
+                Patrones detectados · {patternOverlay.length}
+              </span>
+              <button onClick={() => { setPatternOverlay([]); setPatternOverlayActive(false); }}
+                className="text-[9px] text-zinc-600 hover:text-zinc-300 uppercase">limpiar</button>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+              {patternOverlay.map((cp, i) => (
+                <div key={i} className={`border px-3 py-2 ${
+                  cp.bias === "bullish" ? "border-emerald-900/50 bg-emerald-950/10" : "border-red-900/50 bg-red-950/10"
+                }`}>
+                  <div className="flex items-center justify-between mb-1">
+                    <div className="flex items-center gap-2">
+                      <span className={`text-[12px] font-medium ${cp.bias === "bullish" ? "text-emerald-300" : "text-red-300"}`}>
+                        {cp.bias === "bullish" ? "▲" : "▼"} {cp.name}
+                      </span>
+                    </div>
+                    <span className={`text-[9px] px-1.5 py-0.5 ${
+                      cp.status === "confirmed" ? "bg-lime-900/50 text-lime-300" :
+                      "bg-zinc-800 text-zinc-500"
+                    }`}>{cp.status === "confirmed" ? "✓ Confirmado" : "En formación"} · {cp.confidence}%</span>
+                  </div>
+                  <div className="text-[10px] text-zinc-400 mb-1.5">{cp.description}</div>
+                  <div className="flex gap-4 text-[10px] tabular-nums">
+                    {cp.entry != null && (
+                      <span className="text-zinc-500">Entry <span className="text-white">${cp.entry.toFixed(2)}</span></span>
+                    )}
+                    {cp.stop != null && (
+                      <span className="text-zinc-500">Stop <span className="text-red-400">${cp.stop.toFixed(2)}</span></span>
+                    )}
+                    {cp.target != null && (
+                      <span className="text-zinc-500">Target <span className="text-emerald-400">${cp.target.toFixed(2)}</span></span>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+            {patternOverlay.length === 0 && (
+              <div className="text-[11px] text-zinc-600 text-center py-2">
+                No se detectaron patrones chartistas en las últimas {candles.length} velas.
+              </div>
+            )}
+          </div>
+        )}
+
+        {patternOverlayActive && patternOverlay.length === 0 && (
+          <div className="border border-zinc-800 bg-zinc-950 p-4 text-center text-[11px] text-zinc-500">
+            No se detectaron patrones chartistas (doble techo/piso, H&S, banderas, cuñas, rectángulo) en las últimas {candles.length} velas.
+          </div>
+        )}
 
         {/* Panel mobile: compacto visual */}
         {analysis && analysisOpen && (
