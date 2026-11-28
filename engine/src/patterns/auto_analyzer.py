@@ -351,6 +351,45 @@ async def _analyze_symbol(db, symbol: str, timeframe: str, pool: str,
                 active_set.add((symbol, name))
                 created += 1
 
+        # 7. Harmonic ABCD (via Fibonacci ratios on pivots)
+        all_pivots = sorted(
+            [(h["idx"], h["price"], "H") for h in pivot_highs] +
+            [(l["idx"], l["price"], "L") for l in pivot_lows],
+            key=lambda x: x[0]
+        )
+        if len(all_pivots) >= 4:
+            recent_p = all_pivots[-6:]
+            for j in range(len(recent_p) - 3):
+                A_idx, A_p, A_t = recent_p[j]
+                B_idx, B_p, B_t = recent_p[j + 1]
+                C_idx, C_p, C_t = recent_p[j + 2]
+                D_idx, D_p, D_t = recent_p[j + 3]
+                if A_t == B_t or B_t == C_t or C_t == D_t:
+                    continue
+                AB = B_p - A_p
+                BC = C_p - B_p
+                CD = D_p - C_p
+                if AB == 0 or BC == 0:
+                    continue
+                if (AB > 0) == (BC > 0):
+                    continue  # must alternate
+                bc_ratio = abs(BC / AB)
+                cd_ratio = abs(CD / BC) if BC != 0 else 0
+                # ABCD: BC ≈ 61.8% AB, CD ≈ 127.2% BC
+                if 0.55 < bc_ratio < 0.70 and 1.15 < cd_ratio < 1.40:
+                    is_bullish = D_t == "L"
+                    name = "ABCD"
+                    bias_h = "bullish" if is_bullish else "bearish"
+                    if (symbol, name) not in active_set:
+                        ttype = "breakout_above" if is_bullish else "breakout_below"
+                        level = D_p + abs(AB) * 0.1 if is_bullish else D_p - abs(AB) * 0.1
+                        await _create_trigger(db, symbol, timeframe, name, bias_h,
+                                              f"Patrón armónico ABCD completado en ${D_p:.2f}. {'Rebote alcista' if is_bullish else 'Caída'} esperado",
+                                              ttype, level, None, pool, atr_val, htf_bias=htf_bias)
+                        active_set.add((symbol, name))
+                        created += 1
+                    break
+
     except Exception as e:
         log.warning("auto_analyzer_advanced_patterns_error", symbol=symbol, error=str(e))
 
