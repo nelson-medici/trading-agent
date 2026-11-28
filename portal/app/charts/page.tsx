@@ -76,6 +76,7 @@ export default function ChartsPage() {
   const [savedAnalyses, setSavedAnalyses] = useState<AnalysisResult[]>([]);
   const [patternOverlay, setPatternOverlay] = useState<ChartPattern[]>([]);
   const [patternOverlayActive, setPatternOverlayActive] = useState(false);
+  const [selectedZoneId, setSelectedZoneId] = useState<string | null>(null);
 
   // Límites por timeframe: 1m→120 (2h), 5m→120 (10h), 15m+→500
   const limitOptions: Record<string, number[]> = {
@@ -589,6 +590,7 @@ export default function ChartsPage() {
         const fromTime = allTimes[0];
         const toTime = allTimes[allTimes.length - 1];
         zones.push({
+          id: `po-${cp.nameEn}-${fromTime}`,
           name: cp.name,
           color: zoneColors[cp.nameEn] ?? (cp.bias === "bullish" ? "#10b981" : "#ef4444"),
           fromTime,
@@ -603,6 +605,7 @@ export default function ChartsPage() {
       const allTimes = cp.lines.flatMap((l) => l.points.map((p) => p.time));
       if (allTimes.length < 2) continue;
       zones.push({
+        id: `an-${cp.nameEn}-${allTimes[0]}`,
         name: cp.name,
         color: zoneColors[cp.nameEn] ?? (cp.bias === "bullish" ? "#10b981" : "#ef4444"),
         fromTime: allTimes[0],
@@ -740,6 +743,7 @@ export default function ChartsPage() {
                 setPatternOverlayActive(false);
                 setShowCandlePatterns(false);
                 setShowStructure(false);
+                setSelectedZoneId(null);
               } else {
                 // Detectar patrones solo en las velas VISIBLES en pantalla
                 let visibleCandles = candles;
@@ -819,6 +823,8 @@ export default function ChartsPage() {
                 horizontalLines={horizontalLines}
                 trendLines={trendLines}
                 patternZones={patternZones}
+                selectedZoneId={selectedZoneId}
+                onZoneSelect={setSelectedZoneId}
                 height={520}
               />
             )}
@@ -1036,7 +1042,7 @@ export default function ChartsPage() {
               <span className="text-[10px] uppercase tracking-wider text-cyan-400">
                 Patrones detectados · {patternOverlay.length}
               </span>
-              <button onClick={() => { setPatternOverlay([]); setPatternOverlayActive(false); }}
+              <button onClick={() => { setPatternOverlay([]); setPatternOverlayActive(false); setSelectedZoneId(null); }}
                 className="text-[9px] text-zinc-600 hover:text-zinc-300 uppercase">limpiar</button>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">

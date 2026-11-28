@@ -50,6 +50,7 @@ export interface TrendLine {
 }
 
 export interface PatternZone {
+  id?: string;              // unique identifier for selection
   name: string;
   color: string;           // background color
   fromTime: number | string;
@@ -63,6 +64,8 @@ interface Props {
   horizontalLines?: HorizontalLine[];
   trendLines?: TrendLine[];
   patternZones?: PatternZone[];
+  selectedZoneId?: string | null;        // which zone is selected
+  onZoneSelect?: (id: string | null) => void;  // callback when zone clicked
   height?: number;
 }
 
@@ -78,7 +81,7 @@ export interface ChartHandle {
 }
 
 const CandlestickChartComponent = forwardRef<ChartHandle, Props>(function CandlestickChartInner(
-  { candles, emas = [], markers = [], horizontalLines = [], trendLines = [], patternZones = [], height = 480 },
+  { candles, emas = [], markers = [], horizontalLines = [], trendLines = [], patternZones = [], selectedZoneId = null, onZoneSelect, height = 480 },
   ref,
 ) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -274,8 +277,9 @@ const CandlestickChartComponent = forwardRef<ChartHandle, Props>(function Candle
     }
   }, [horizontalLines]);
 
-  // Pattern zone overlays: position labels at the top of the chart
-  const [zonePositions, setZonePositions] = useState<{ name: string; color: string; left: number; width: number }[]>([]);
+  // Pattern zone overlays: stacked labels at the top of the chart
+  interface ZonePos { id: string; name: string; color: string; left: number; width: number; row: number; }
+  const [zonePositions, setZonePositions] = useState<ZonePos[]>([]);
 
   useEffect(() => {
     if (!chartRef.current || patternZones.length === 0 || candles.length === 0) {
@@ -286,77 +290,127 @@ const CandlestickChartComponent = forwardRef<ChartHandle, Props>(function Candle
     const updateZones = () => {
       if (!chartRef.current) return;
       const ts = chartRef.current.timeScale();
-      const positions: { name: string; color: string; left: number; width: number }[] = [];
+      const raw: { id: string; name: string; color: string; left: number; right: number; width: number }[] = [];
 
-      for (const zone of patternZones) {
+      for (let i = 0; i < patternZones.length; i++) {
+        const zone = patternZones[i];
         const fromCoord = ts.timeToCoordinate(toTime(zone.fromTime));
         const toCoord = ts.timeToCoordinate(toTime(zone.toTime));
         if (fromCoord === null || toCoord === null) continue;
 
         const left = Math.min(fromCoord, toCoord);
-        const width = Math.abs(toCoord - fromCoord);
-        if (width < 10) continue; // too small to show
+        const right = Math.max(fromCoord, toCoord);
+        const width = right - left;
+        if (width < 20) continue;
 
-        positions.push({ name: zone.name, color: zone.color, left, width });
+        raw.push({ id: zone.id ?? `z${i}`, name: zone.name, color: zone.color, left, right, width });
       }
-      setZonePositions(positions);
+
+      // Stack: assign rows to avoid overlap
+      const ROW_HEIGHT = 18;
+      const rows: { left: number; right: number }[][] = [];
+      const positioned: ZonePos[] = [];
+
+      for (const z of raw) {
+        let assignedRow = -1;
+        for (let r = 0; r < rows.length; r++) {
+          const overlaps = rows[r].some((s) => !(z.right < s.left || z.left > s.right));
+          if (!overlaps) { assignedRow = r; break; }
+        }
+        if (assignedRow === -1) {
+          assignedRow = rows.length;
+          rows.push([]);
+        }
+        rows[assignedRow].push({ left: z.left, right: z.right });
+        positioned.push({ ...z, row: assignedRow });
+      }
+
+      setZonePositions(positioned);
     };
 
     updateZones();
-
-    // Update on scroll/zoom
     const ts = chartRef.current.timeScale();
     ts.subscribeVisibleLogicalRangeChange(updateZones);
     return () => { ts.unsubscribeVisibleLogicalRangeChange(updateZones); };
   }, [patternZones, candles]);
 
+  const maxRow = zonePositions.length > 0 ? Math.max(...zonePositions.map((z) => z.row)) : -1;
+  const zonesHeight = (maxRow + 1) * 18;
+
   return (
-    <div style={{ position: "relative", height: `${height}px`, width: "100%" }}>
-      <div ref={containerRef} style={{ height: "100%", width: "100%" }} />
-      {/* Pattern zone labels at the top */}
-      {zonePositions.map((z, i) => (
-        <div key={i} style={{
-          position: "absolute",
-          top: 0,
-          left: `${z.left}px`,
-          width: `${z.width}px`,
-          zIndex: 5,
-          pointerEvents: "none",
-        }}>
-          {/* Vertical line (subtle) */}
+    <div style={{ position: "relative", height: `${height + zonesHeight}px`, width: "100%" }}>
+      {/* Stacked zone labels */}
+      {zonesHeight > 0 && (
+        <div style={{ position: "relative", height: `${zonesHeight}px`, width: "100%" }}>
+          {zonePositions.map((z) => {
+            const isSelected = selectedZoneId === z.id;
+            const isOther = selectedZoneId != null && !isSelected;
+            return (
+              <div key={z.id} style={{
+                position: "absolute",
+                top: `${z.row * 18}px`,
+                left: `${z.left}px`,
+                width: `${z.width}px`,
+                height: "16px",
+                zIndex: isSelected ? 10 : 5,
+                cursor: "pointer",
+                opacity: isOther ? 0.3 : 1,
+                transition: "opacity 0.2s",
+              }}
+                onClick={() => onZoneSelect?.(isSelected ? null : z.id)}
+              >
+                <div style={{
+                  background: z.color,
+                  height: "100%",
+                  padding: "0 6px",
+                  fontSize: "9px",
+                  fontWeight: 600,
+                  letterSpacing: "0.05em",
+                  textTransform: "uppercase",
+                  color: "#000",
+                  whiteSpace: "nowrap",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  borderBottom: isSelected ? `2px solid ${z.color}` : "none",
+                }}>
+                  {z.name}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Chart */}
+      <div ref={containerRef} style={{ height: `${height}px`, width: "100%" }} />
+
+      {/* Vertical guide lines for selected zone */}
+      {selectedZoneId && zonePositions.filter((z) => z.id === selectedZoneId).map((z) => (
+        <div key={`guide-${z.id}`}>
           <div style={{
-            position: "absolute",
-            left: 0,
-            top: 20,
-            bottom: 0,
-            width: "1px",
-            background: `${z.color}30`,
-            height: `${height - 20}px`,
+            position: "absolute", top: `${zonesHeight}px`, left: `${z.left}px`,
+            width: "1px", height: `${height}px`, background: `${z.color}50`, zIndex: 4,
           }} />
           <div style={{
-            position: "absolute",
-            right: 0,
-            top: 20,
-            width: "1px",
-            background: `${z.color}30`,
-            height: `${height - 20}px`,
+            position: "absolute", top: `${zonesHeight}px`, left: `${z.left + z.width}px`,
+            width: "1px", height: `${height}px`, background: `${z.color}50`, zIndex: 4,
           }} />
-          {/* Label */}
+          {/* Dim overlay outside the pattern zone */}
+          {z.left > 0 && (
+            <div style={{
+              position: "absolute", top: `${zonesHeight}px`, left: 0,
+              width: `${z.left}px`, height: `${height}px`,
+              background: "rgba(0,0,0,0.5)", zIndex: 3, pointerEvents: "none",
+            }} />
+          )}
           <div style={{
-            background: z.color,
-            padding: "2px 6px",
-            fontSize: "9px",
-            fontWeight: 600,
-            letterSpacing: "0.05em",
-            textTransform: "uppercase",
-            color: "#000",
-            whiteSpace: "nowrap",
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-            textAlign: "center",
-          }}>
-            {z.name}
-          </div>
+            position: "absolute", top: `${zonesHeight}px`, left: `${z.left + z.width}px`,
+            right: 0, height: `${height}px`,
+            background: "rgba(0,0,0,0.5)", zIndex: 3, pointerEvents: "none",
+          }} />
         </div>
       ))}
     </div>
