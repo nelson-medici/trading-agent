@@ -21,6 +21,19 @@ AUTO_DEFAULTS = {
 }
 
 
+async def _get_fear_greed(store) -> int | None:
+    """Read the latest fear & greed index from features (any symbol, it's global)."""
+    try:
+        from src.core.db import get_db
+        db = get_db()
+        rows = await db.select("features", ["fear_greed"], {}, order_by="-ts", limit=1)
+        if rows and rows[0].get("fear_greed") is not None:
+            return int(rows[0]["fear_greed"])
+    except Exception:
+        pass
+    return None
+
+
 async def scan(store, market, now: datetime | None = None) -> list[dict]:
     now = now or datetime.now(timezone.utc)
     raw = await store.config() or {}
@@ -75,6 +88,13 @@ async def _maybe_auto_start(store, raw: dict, candidates: list[dict], now: datet
         return None
     if await store.kill_active():
         log.info("scalper_auto_skip", reason="kill_switch")
+        return None
+
+    # Fear & Greed filter: don't auto-start in extreme fear unless RSI mode
+    fg = await _get_fear_greed(store)
+    min_fg = int(auto.get("min_fear_greed", 20))
+    if fg is not None and fg < min_fg:
+        log.info("scalper_auto_skip", reason="fear_greed_too_low", fear_greed=fg, min=min_fg)
         return None
 
     recent = await store.sessions_since(now - timedelta(hours=24))

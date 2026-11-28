@@ -189,7 +189,17 @@ async def _maybe_enter(store, sess, df, bid, ask, p, st, capital, now) -> str:
     if not active:
         return window_reason
 
-    sig = scalper_entry(df, bid, ask, p)
+    # Read fear & greed for mode selection
+    _fg = None
+    try:
+        from src.core.db import get_db
+        _fg_rows = await get_db().select("features", ["fear_greed"], {}, order_by="-ts", limit=1)
+        if _fg_rows and _fg_rows[0].get("fear_greed") is not None:
+            _fg = int(_fg_rows[0]["fear_greed"])
+    except Exception:
+        pass
+
+    sig = scalper_entry(df, bid, ask, p, fear_greed=_fg)
     if not sig.ok:
         return sig.reason
     if p.get("_last_entry_candle") == sig.candle_ts:

@@ -20,9 +20,9 @@ DEFAULTS = {
     "max_body_atr": 4.0,            # vela de ruptura no "exhausta"
     # Entrada (modo RSI reversal)
     "rsi_period": 7,
-    "rsi_oversold": 20,
+    "rsi_oversold": 25,             # 25 instead of 20: catches more bounces
     "rsi_overbought": 80,
-    "rsi_target_rr": 1.5,           # R:R del modo RSI (más conservador)
+    "rsi_target_rr": 2.0,           # R:R del modo RSI (was 1.5, need better reward)
     # Selección de modo
     "scalper_mode": "auto",         # "momentum" | "rsi" | "auto" (auto elige por ADX)
     "adx_momentum_threshold": 25,   # ADX > esto → momentum; ADX < → RSI
@@ -352,10 +352,12 @@ def rsi_entry_signal(df: pd.DataFrame, bid: float, ask: float,
     if not crossed_up:
         return EntrySignal(False, f"RSI({period}) = {rsi_now:.1f}, sin cruce de sobreventa", ts)
 
-    # Tendencia: EMA50 como filtro (precio debe estar arriba)
-    e50 = float(ema(close, 50).iloc[-1])
-    if last_close < e50:
-        return EntrySignal(False, f"RSI cruzó pero precio debajo de EMA50 (contra-tendencia)", ts)
+    # Tendencia: EMA20 como filtro suave (en RSI mode buscamos rebotes,
+    # así que usamos EMA más corta para no bloquear todo en mercados bajistas)
+    e20 = float(ema(close, 20).iloc[-1])
+    # Solo bloquear si el precio está MUY por debajo de EMA20 (> 1 ATR)
+    if last_close < e20 - a * 1.5:
+        return EntrySignal(False, f"RSI cruzó pero precio muy debajo de EMA20 (caída fuerte)", ts)
 
     # Spread
     mid = (bid + ask) / 2
@@ -383,16 +385,22 @@ def rsi_entry_signal(df: pd.DataFrame, bid: float, ask: float,
 # SELECCIÓN AUTOMÁTICA DE MODO
 # ------------------------------------------------------------------
 
-def select_scalper_mode(df: pd.DataFrame, params: dict | None = None) -> str:
+def select_scalper_mode(df: pd.DataFrame, params: dict | None = None,
+                        fear_greed: int | None = None) -> str:
     """
     Selecciona el modo del scalper según el régimen del mercado.
-    ADX alto (> threshold) → momentum breakout (mercado tendencial)
-    ADX bajo → RSI reversal (mercado en rango)
+    - Fear & Greed < 25 → RSI (en mercados de miedo, solo buscar rebotes de sobreventa)
+    - ADX alto (> threshold) → momentum breakout (mercado tendencial)
+    - ADX bajo → RSI reversal (mercado en rango)
     """
     p = merged_params(params)
     mode = p.get("scalper_mode", "auto")
     if mode in ("momentum", "rsi"):
         return mode
+
+    # In extreme fear, only do RSI reversals (buy oversold bounces)
+    if fear_greed is not None and fear_greed < 25:
+        return "rsi"
 
     # Auto: decidir por ADX
     d = prepare(df).iloc[:-1]
@@ -407,13 +415,14 @@ def select_scalper_mode(df: pd.DataFrame, params: dict | None = None) -> str:
 
 
 def scalper_entry(df: pd.DataFrame, bid: float, ask: float,
-                  params: dict | None = None, force_mode: str | None = None) -> EntrySignal:
+                  params: dict | None = None, force_mode: str | None = None,
+                  fear_greed: int | None = None) -> EntrySignal:
     """
     Punto de entrada unificado del scalper: selecciona modo y llama
     a la señal correspondiente.
     """
     p = merged_params(params)
-    mode = force_mode or select_scalper_mode(df, p)
+    mode = force_mode or select_scalper_mode(df, p, fear_greed=fear_greed)
 
     if mode == "rsi":
         return rsi_entry_signal(df, bid, ask, p)
