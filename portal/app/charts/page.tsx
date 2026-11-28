@@ -729,19 +729,31 @@ export default function ChartsPage() {
         </div>
 
         {/* Toggles */}
-        <div className="flex flex-wrap gap-2 text-[10px]">
+        <div className="flex flex-wrap gap-2 text-[10px] items-center">
+          <button onClick={() => {
+            const anyOn = showEMA20 || showEMA50 || showEMA200 || showTrades || showSignals || showPositionLevels || showSR || showFVG || showRejections || showVolProfile || showCandlePatterns || showStructure;
+            const next = !anyOn;
+            setShowEMA20(next); setShowEMA50(next); setShowEMA200(next);
+            setShowTrades(next); setShowSignals(next); setShowPositionLevels(next);
+            setShowSR(next); setShowFVG(next); setShowRejections(next);
+            setShowVolProfile(next); setShowCandlePatterns(next); setShowStructure(next);
+          }}
+            className="border border-zinc-700 px-2 py-1 text-zinc-500 hover:text-zinc-200 hover:border-zinc-500 uppercase tracking-wider transition-colors">
+            {(showEMA20 || showEMA50 || showEMA200 || showTrades || showSignals || showPositionLevels || showSR || showFVG || showRejections || showVolProfile || showCandlePatterns || showStructure) ? "Limpiar" : "Mostrar"}
+          </button>
+          <span className="text-zinc-800">|</span>
           <Toggle label="EMA 20" active={showEMA20} onToggle={() => setShowEMA20(!showEMA20)} color="#60a5fa" />
           <Toggle label="EMA 50" active={showEMA50} onToggle={() => setShowEMA50(!showEMA50)} color="#f59e0b" />
           <Toggle label="EMA 200" active={showEMA200} onToggle={() => setShowEMA200(!showEMA200)} color="#ec4899" />
           <Toggle label="Trades" active={showTrades} onToggle={() => setShowTrades(!showTrades)} color="#84cc16" />
           <Toggle label="Signals" active={showSignals} onToggle={() => setShowSignals(!showSignals)} color="#06b6d4" />
-          <Toggle label="Position levels" active={showPositionLevels} onToggle={() => setShowPositionLevels(!showPositionLevels)} color="#a1a1aa" />
-          <span className="text-zinc-700">|</span>
+          <Toggle label="Pos" active={showPositionLevels} onToggle={() => setShowPositionLevels(!showPositionLevels)} color="#a1a1aa" />
+          <span className="text-zinc-800">|</span>
           <Toggle label="S/R" active={showSR} onToggle={() => setShowSR(!showSR)} color="#22d3ee" />
           <Toggle label="FVG" active={showFVG} onToggle={() => setShowFVG(!showFVG)} color="#22d3ee" />
           <Toggle label="Rechazo" active={showRejections} onToggle={() => setShowRejections(!showRejections)} color="#f472b6" />
-          <Toggle label="Vol Profile" active={showVolProfile} onToggle={() => setShowVolProfile(!showVolProfile)} color="#fbbf24" />
-          <span className="text-zinc-700">|</span>
+          <Toggle label="Vol" active={showVolProfile} onToggle={() => setShowVolProfile(!showVolProfile)} color="#fbbf24" />
+          <span className="text-zinc-800">|</span>
           <Toggle label="Velas" active={showCandlePatterns} onToggle={() => setShowCandlePatterns(!showCandlePatterns)} color="#34d399" />
           <Toggle label="Estructura" active={showStructure} onToggle={() => setShowStructure(!showStructure)} color="#818cf8" />
         </div>
