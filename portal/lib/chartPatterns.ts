@@ -702,6 +702,243 @@ function detectRectangle(candles: Candle[], pivots: { highs: Pivot[]; lows: Pivo
 }
 
 // ------------------------------------------------------------------
+// 6. CANAL DESCENDENTE / ASCENDENTE
+// ------------------------------------------------------------------
+
+function detectChannel(candles: Candle[], pivots: { highs: Pivot[]; lows: Pivot[] }): ChartPattern | null {
+  if (pivots.highs.length < 3 || pivots.lows.length < 3) return null;
+  const n = candles.length;
+  const price = candles[n - 1].close;
+
+  const ph = pivots.highs;
+  const pl = pivots.lows;
+
+  // Check last 3+ highs for consistent slope
+  const recentHighs = ph.slice(-4);
+  const recentLows = pl.slice(-4);
+  if (recentHighs.length < 3 || recentLows.length < 3) return null;
+
+  // Calculate trend of highs and lows
+  const hSlope = (recentHighs[recentHighs.length - 1].price - recentHighs[0].price) /
+                 Math.max(1, recentHighs[recentHighs.length - 1].idx - recentHighs[0].idx);
+  const lSlope = (recentLows[recentLows.length - 1].price - recentLows[0].price) /
+                 Math.max(1, recentLows[recentLows.length - 1].idx - recentLows[0].idx);
+
+  // Both slopes should be in the same direction and roughly parallel
+  const slopeDiff = Math.abs(hSlope - lSlope);
+  const avgSlope = (Math.abs(hSlope) + Math.abs(lSlope)) / 2;
+  if (avgSlope < 0.5) return null; // too flat, not a channel
+  if (slopeDiff / avgSlope > 1.5) return null; // not parallel enough
+
+  // Channel width consistency
+  const widths = [];
+  for (let i = 0; i < Math.min(recentHighs.length, recentLows.length); i++) {
+    const h = recentHighs[Math.min(i, recentHighs.length - 1)];
+    const l = recentLows[Math.min(i, recentLows.length - 1)];
+    widths.push(h.price - l.price);
+  }
+  const avgWidth = widths.reduce((a, b) => a + b, 0) / widths.length;
+  const widthVariance = widths.reduce((a, w) => a + Math.abs(w - avgWidth), 0) / widths.length;
+  if (widthVariance / avgWidth > 0.4) return null; // channel width too inconsistent
+
+  if (hSlope < 0 && lSlope < 0) {
+    // Descending channel — bullish breakout expected
+    const breakoutLevel = recentHighs[recentHighs.length - 1].price;
+    const target = breakoutLevel + avgWidth;
+
+    return {
+      name: "Canal Descendente",
+      nameEn: "Descending Channel",
+      type: "reversal",
+      bias: "bullish",
+      status: price > breakoutLevel ? "confirmed" : "forming",
+      confidence: price > breakoutLevel ? 70 : 50,
+      entry: breakoutLevel,
+      stop: recentLows[recentLows.length - 1].price,
+      target,
+      lines: [
+        // Upper channel line
+        { points: recentHighs.map((p) => ({ time: p.time, value: p.price })),
+          color: "#f472b6", lineWidth: 2 },
+        // Lower channel line
+        { points: recentLows.map((p) => ({ time: p.time, value: p.price })),
+          color: "#22d3ee", lineWidth: 2 },
+      ],
+      projectionLine: price > breakoutLevel ? {
+        points: [
+          { time: candles[recentHighs[recentHighs.length - 1].idx]?.time ?? candles[n - 1].time, value: breakoutLevel },
+          { time: candles[n - 1].time, value: target },
+        ],
+        color: "#10b98160",
+        lineWidth: 2,
+        style: "dotted",
+      } : undefined,
+      description: `Canal bajista con ${recentHighs.length} techos descendentes. Ruptura alcista por encima de $${breakoutLevel.toFixed(2)}`,
+    };
+  }
+
+  if (hSlope > 0 && lSlope > 0) {
+    // Ascending channel — bearish breakout warning
+    const breakoutLevel = recentLows[recentLows.length - 1].price;
+    const target = breakoutLevel - avgWidth;
+
+    return {
+      name: "Canal Ascendente",
+      nameEn: "Ascending Channel",
+      type: "continuation",
+      bias: "bearish",
+      status: price < breakoutLevel ? "confirmed" : "forming",
+      confidence: price < breakoutLevel ? 70 : 45,
+      entry: breakoutLevel,
+      stop: recentHighs[recentHighs.length - 1].price,
+      target,
+      lines: [
+        { points: recentHighs.map((p) => ({ time: p.time, value: p.price })),
+          color: "#f472b6", lineWidth: 2 },
+        { points: recentLows.map((p) => ({ time: p.time, value: p.price })),
+          color: "#22d3ee", lineWidth: 2 },
+      ],
+      description: `Canal alcista con ${recentLows.length} pisos ascendentes. Quiebre bajista por debajo de $${breakoutLevel.toFixed(2)}`,
+    };
+  }
+
+  return null;
+}
+
+// ------------------------------------------------------------------
+// 7. TRIPLE BOTTOM / TRIPLE TOP
+// ------------------------------------------------------------------
+
+function detectTripleBottomTop(candles: Candle[], pivots: { highs: Pivot[]; lows: Pivot[] }): ChartPattern[] {
+  const n = candles.length;
+  const price = candles[n - 1].close;
+  const results: ChartPattern[] = [];
+
+  // Triple Bottom: 3 mínimos similares
+  if (pivots.lows.length >= 3) {
+    for (let i = 0; i < pivots.lows.length - 2; i++) {
+      const b1 = pivots.lows[i];
+      const b2 = pivots.lows[i + 1];
+      const b3 = pivots.lows[i + 2];
+
+      const avgPrice = (b1.price + b2.price + b3.price) / 3;
+      const maxDiff = Math.max(
+        pctDiff(b1.price, avgPrice),
+        pctDiff(b2.price, avgPrice),
+        pctDiff(b3.price, avgPrice),
+      );
+      if (maxDiff > 1.5) continue;
+      if (b2.idx - b1.idx < 4 || b3.idx - b2.idx < 4) continue;
+
+      // Find neckline (highest peak between bottoms)
+      let peak = -Infinity;
+      for (let j = b1.idx; j <= b3.idx; j++) {
+        if (candles[j].high > peak) peak = candles[j].high;
+      }
+      const neckline = peak;
+      const height = neckline - avgPrice;
+      if (height / neckline * 100 < 1) continue;
+
+      const confirmed = price > neckline;
+
+      results.push({
+        name: "Triple Piso",
+        nameEn: "Triple Bottom",
+        type: "reversal",
+        bias: "bullish",
+        status: confirmed ? "confirmed" : "forming",
+        confidence: confirmed ? 85 : 65,
+        entry: neckline,
+        stop: Math.min(b1.price, b2.price, b3.price),
+        target: neckline + height,
+        neckline,
+        lines: [
+          { points: [
+            { time: b1.time, value: b1.price },
+            { time: b2.time, value: b2.price },
+            { time: b3.time, value: b3.price },
+          ], color: "#10b981", lineWidth: 2 },
+          { points: [
+            { time: b1.time, value: neckline },
+            { time: b3.time, value: neckline },
+          ], color: "#f59e0b", lineWidth: 1, style: "dashed" },
+        ],
+        projectionLine: confirmed ? {
+          points: [
+            { time: b3.time, value: neckline },
+            { time: candles[Math.min(b3.idx + 20, n - 1)].time, value: neckline + height },
+          ],
+          color: "#10b98160", lineWidth: 2, style: "dotted",
+        } : undefined,
+        description: `3 pisos en ~$${avgPrice.toFixed(2)}. Neckline: $${neckline.toFixed(2)}`,
+      });
+    }
+  }
+
+  // Triple Top: 3 máximos similares
+  if (pivots.highs.length >= 3) {
+    for (let i = 0; i < pivots.highs.length - 2; i++) {
+      const t1 = pivots.highs[i];
+      const t2 = pivots.highs[i + 1];
+      const t3 = pivots.highs[i + 2];
+
+      const avgPrice = (t1.price + t2.price + t3.price) / 3;
+      const maxDiff = Math.max(
+        pctDiff(t1.price, avgPrice),
+        pctDiff(t2.price, avgPrice),
+        pctDiff(t3.price, avgPrice),
+      );
+      if (maxDiff > 1.5) continue;
+      if (t2.idx - t1.idx < 4 || t3.idx - t2.idx < 4) continue;
+
+      let valley = Infinity;
+      for (let j = t1.idx; j <= t3.idx; j++) {
+        if (candles[j].low < valley) valley = candles[j].low;
+      }
+      const neckline = valley;
+      const height = avgPrice - neckline;
+      if (height / neckline * 100 < 1) continue;
+
+      const confirmed = price < neckline;
+
+      results.push({
+        name: "Triple Techo",
+        nameEn: "Triple Top",
+        type: "reversal",
+        bias: "bearish",
+        status: confirmed ? "confirmed" : "forming",
+        confidence: confirmed ? 85 : 65,
+        entry: neckline,
+        stop: Math.max(t1.price, t2.price, t3.price),
+        target: neckline - height,
+        neckline,
+        lines: [
+          { points: [
+            { time: t1.time, value: t1.price },
+            { time: t2.time, value: t2.price },
+            { time: t3.time, value: t3.price },
+          ], color: "#ef4444", lineWidth: 2 },
+          { points: [
+            { time: t1.time, value: neckline },
+            { time: t3.time, value: neckline },
+          ], color: "#f59e0b", lineWidth: 1, style: "dashed" },
+        ],
+        projectionLine: confirmed ? {
+          points: [
+            { time: t3.time, value: neckline },
+            { time: candles[Math.min(t3.idx + 20, n - 1)].time, value: neckline - height },
+          ],
+          color: "#ef444460", lineWidth: 2, style: "dotted",
+        } : undefined,
+        description: `3 techos en ~$${avgPrice.toFixed(2)}. Neckline: $${neckline.toFixed(2)}`,
+      });
+    }
+  }
+
+  return results;
+}
+
+// ------------------------------------------------------------------
 // DETECTOR PRINCIPAL
 // ------------------------------------------------------------------
 
@@ -714,6 +951,10 @@ export function detectChartPatterns(candles: Candle[]): ChartPattern[] {
   // Scan ALL pivots for patterns across the whole chart
   patterns.push(...detectHeadShoulders(candles, pivots));
   patterns.push(...detectDoubleTopBottom(candles, pivots));
+  patterns.push(...detectTripleBottomTop(candles, pivots));
+
+  const channel = detectChannel(candles, pivots);
+  if (channel) patterns.push(channel);
 
   const flag = detectFlag(candles, pivots);
   if (flag) patterns.push(flag);
@@ -722,7 +963,7 @@ export function detectChartPatterns(candles: Candle[]): ChartPattern[] {
   if (wedge) patterns.push(wedge);
 
   const rect = detectRectangle(candles, pivots);
-  if (rect && patterns.length === 0) patterns.push(rect);
+  if (rect && patterns.length < 3) patterns.push(rect);
 
   // Dedup: si hay patrones en la misma zona de precio, quedarse con el de mayor confianza
   patterns.sort((a, b) => b.confidence - a.confidence);
