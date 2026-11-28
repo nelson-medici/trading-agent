@@ -323,7 +323,7 @@ export default function ScalperPage() {
             <div className="border border-zinc-800 bg-zinc-950 p-4 text-xs text-zinc-600">Sin lecturas todavía. El detector corre con el engine prendido.</div>
           ) : (
             <div className="space-y-1.5">
-              {[...scan].sort((a, b) => Number(b.score) - Number(a.score)).map((r) => {
+              {[...scan].sort((a, b) => Number(b.score) - Number(a.score)).filter((r) => Number(r.score) >= threshold * 0.5).map((r) => {
                 const score = Number(r.score);
                 const stale = now - new Date(r.updated_at).getTime() > 10 * 60_000;
                 const c = r.components || {};
