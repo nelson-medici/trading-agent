@@ -58,7 +58,12 @@ async def scan(store, market, now: datetime | None = None) -> list[dict]:
             log.error("scalper_scan_failed", symbol=symbol, error=str(e))
 
     if candidates:
-        await _maybe_auto_start(store, raw, candidates, now)
+        log.info("scalper_candidates_found", count=len(candidates),
+                 symbols=[c["symbol"] for c in candidates],
+                 scores=[c["score"] for c in candidates])
+        launched = await _maybe_auto_start(store, raw, candidates, now)
+        if not launched:
+            log.info("scalper_auto_start_skipped", candidates=len(candidates))
     return alerted
 
 
@@ -66,8 +71,10 @@ async def _maybe_auto_start(store, raw: dict, candidates: list[dict], now: datet
     """Lanza una sesión sobre el mejor candidato. Devuelve el símbolo lanzado o None."""
     auto = {**AUTO_DEFAULTS, **(raw.get("auto_start") or {})}
     if not auto["enabled"]:
+        log.info("scalper_auto_skip", reason="disabled")
         return None
     if await store.kill_active():
+        log.info("scalper_auto_skip", reason="kill_switch")
         return None
 
     recent = await store.sessions_since(now - timedelta(hours=24))
