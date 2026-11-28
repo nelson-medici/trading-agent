@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase";
 import { useRouter } from "next/navigation";
 import Shell from "@/components/Shell";
-import { Code2, Edit2, Check, X, Plus, Trash2 } from "lucide-react";
+import { Code2, Edit2, Check, X, Plus, Trash2, Settings, Shield, TrendingUp, Layers, Globe, Zap } from "lucide-react";
 
 interface Config {
   key: string;
@@ -12,6 +12,16 @@ interface Config {
   description: string | null;
   updated_at: string | null;
 }
+
+// Tab definitions with categories they contain
+const TABS = [
+  { id: "sistema", label: "Sistema", icon: Settings, categories: ["system", "execution", "llm"], description: "Entorno, broker, modelos LLM" },
+  { id: "estrategia", label: "Estrategia", icon: TrendingUp, categories: ["strategy", "strategies"], description: "Pesos, umbrales, señales" },
+  { id: "riesgo", label: "Riesgo", icon: Shield, categories: ["risk"], description: "Stops, sizing, drawdown" },
+  { id: "pools", label: "Pools", icon: Layers, categories: ["pools"], description: "Core, tactical, equities" },
+  { id: "universo", label: "Universo", icon: Globe, categories: ["universe"], description: "Activos habilitados" },
+  { id: "scalper", label: "Scalper", icon: Zap, categories: ["scalper"], description: "Auto-start, detector, sesión" },
+] as const;
 
 export default function ConfigPage() {
   const supabase = createClient();
@@ -24,6 +34,7 @@ export default function ConfigPage() {
   const [rawValue, setRawValue] = useState<string>("");
   const [msg, setMsg] = useState<string>("");
   const [busy, setBusy] = useState(false);
+  const [activeTab, setActiveTab] = useState("sistema");
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -46,7 +57,7 @@ export default function ConfigPage() {
 
   function startEdit(c: Config) {
     setEditing(c.key);
-    setDraft(JSON.parse(JSON.stringify(c.value))); // deep clone
+    setDraft(JSON.parse(JSON.stringify(c.value)));
     setRawMode(null);
     setMsg("");
   }
@@ -86,15 +97,20 @@ export default function ConfigPage() {
     }
   }
 
-  const byCategory = configs.reduce((acc: Record<string, Config[]>, c) => {
-    if (!acc[c.category]) acc[c.category] = [];
-    acc[c.category].push(c);
-    return acc;
-  }, {});
+  // Filter configs for current tab
+  const currentTabDef = TABS.find((t) => t.id === activeTab)!;
+  const tabConfigs = configs.filter((c) => (currentTabDef.categories as readonly string[]).includes(c.category));
+
+  // Count items per tab for badges
+  const tabCounts = TABS.map((t) => ({
+    id: t.id,
+    count: configs.filter((c) => (t.categories as readonly string[]).includes(c.category)).length,
+  }));
 
   return (
     <Shell current="config">
-      <div className="space-y-6">
+      <div className="space-y-4">
+        {/* Warning banner */}
         <div className="border border-amber-900 bg-amber-950/10 p-3 text-[11px] text-amber-300">
           ⚠️ Cambios acá afectan directamente el comportamiento del engine. Los parámetros de riesgo son críticos — no los subas sin análisis.
         </div>
@@ -105,63 +121,93 @@ export default function ConfigPage() {
           </div>
         )}
 
-        {Object.entries(byCategory).map(([cat, items]) => (
-          <section key={cat}>
-            <h2 className="text-[11px] uppercase tracking-[0.2em] text-zinc-500 mb-2">// {cat}</h2>
-            <div className="space-y-2">
-              {items.map((c) => (
-                <div key={c.key} className="border border-zinc-800 bg-zinc-950 p-4">
-                  <div className="flex items-start justify-between mb-3">
-                    <div className="flex-1">
-                      <div className="text-sm text-zinc-100 font-medium">{humanizeKey(c.key)}</div>
-                      <div className="text-[10px] text-zinc-600 font-mono">{c.key}</div>
-                      {c.description && <div className="text-[11px] text-zinc-500 mt-1">{c.description}</div>}
-                    </div>
-                    {editing !== c.key ? (
-                      <button onClick={() => startEdit(c)}
-                        className="text-[10px] uppercase tracking-wider border border-zinc-700 px-2 py-1 hover:border-lime-500 hover:text-lime-400 flex items-center gap-1">
-                        <Edit2 className="w-3 h-3" /> editar
-                      </button>
-                    ) : (
-                      <div className="flex gap-1">
-                        <button onClick={() => toggleRaw(c)}
-                          title={rawMode === c.key ? "Modo formulario" : "Modo JSON raw"}
-                          className="text-[10px] uppercase tracking-wider border border-zinc-700 px-2 py-1 hover:border-zinc-500 flex items-center gap-1">
-                          <Code2 className="w-3 h-3" /> {rawMode === c.key ? "form" : "raw"}
-                        </button>
-                      </div>
-                    )}
+        {/* Tab navigation */}
+        <div className="flex gap-1 overflow-x-auto pb-1 border-b border-zinc-800">
+          {TABS.map((tab) => {
+            const Icon = tab.icon;
+            const count = tabCounts.find((tc) => tc.id === tab.id)?.count ?? 0;
+            const isActive = activeTab === tab.id;
+            return (
+              <button key={tab.id} onClick={() => { setActiveTab(tab.id); cancelEdit(); }}
+                className={`flex items-center gap-2 px-3 py-2 text-xs whitespace-nowrap transition-colors border-b-2 -mb-[1px] ${
+                  isActive
+                    ? "border-violet-500 text-violet-300 bg-violet-950/20"
+                    : "border-transparent text-zinc-500 hover:text-zinc-300 hover:border-zinc-700"
+                }`}>
+                <Icon className="w-3.5 h-3.5" />
+                <span className="font-medium">{tab.label}</span>
+                <span className={`text-[9px] px-1.5 py-0.5 rounded-full ${
+                  isActive ? "bg-violet-900/50 text-violet-300" : "bg-zinc-900 text-zinc-600"
+                }`}>{count}</span>
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Tab description */}
+        <div className="text-[10px] uppercase tracking-[0.2em] text-zinc-600">
+          {currentTabDef.description}
+        </div>
+
+        {/* Config items for active tab */}
+        <div className="space-y-2">
+          {tabConfigs.length === 0 && (
+            <div className="text-zinc-600 text-xs py-8 text-center">No hay configuraciones en esta sección.</div>
+          )}
+          {tabConfigs.map((c) => (
+            <div key={c.key} className="border border-zinc-800 bg-zinc-950 p-4">
+              <div className="flex items-start justify-between mb-3">
+                <div className="flex-1">
+                  <div className="text-sm text-zinc-100 font-medium">{humanizeKey(c.key)}</div>
+                  <div className="flex items-center gap-2 mt-0.5">
+                    <span className="text-[10px] text-zinc-600 font-mono">{c.key}</span>
+                    <span className="text-[9px] px-1.5 py-0.5 bg-zinc-900 text-zinc-500 uppercase tracking-wider">{c.category}</span>
                   </div>
-
-                  {editing === c.key ? (
-                    <div>
-                      {rawMode === c.key ? (
-                        <textarea value={rawValue} onChange={(e) => setRawValue(e.target.value)}
-                          rows={Math.max(4, rawValue.split("\n").length)}
-                          className="w-full bg-black border border-zinc-800 p-2 text-xs text-lime-300 font-mono focus:border-lime-500 outline-none" />
-                      ) : (
-                        <ValueEditor value={draft} onChange={setDraft} path="" keyName={c.key} />
-                      )}
-
-                      <div className="flex gap-2 mt-3">
-                        <button onClick={() => saveEdit(c.key)} disabled={busy}
-                          className="border border-lime-700 hover:border-lime-500 text-lime-300 hover:bg-lime-950/50 px-3 py-1.5 text-[11px] uppercase tracking-wider disabled:opacity-50 flex items-center gap-1">
-                          <Check className="w-3 h-3" /> guardar
-                        </button>
-                        <button onClick={cancelEdit}
-                          className="border border-zinc-700 text-zinc-400 px-3 py-1.5 text-[11px] uppercase tracking-wider hover:border-zinc-500 flex items-center gap-1">
-                          <X className="w-3 h-3" /> cancelar
-                        </button>
-                      </div>
-                    </div>
-                  ) : (
-                    <ValuePreview value={c.value} keyName={c.key} />
-                  )}
+                  {c.description && <div className="text-[11px] text-zinc-500 mt-1">{c.description}</div>}
                 </div>
-              ))}
+                {editing !== c.key ? (
+                  <button onClick={() => startEdit(c)}
+                    className="text-[10px] uppercase tracking-wider border border-zinc-700 px-2 py-1 hover:border-lime-500 hover:text-lime-400 flex items-center gap-1">
+                    <Edit2 className="w-3 h-3" /> editar
+                  </button>
+                ) : (
+                  <div className="flex gap-1">
+                    <button onClick={() => toggleRaw(c)}
+                      title={rawMode === c.key ? "Modo formulario" : "Modo JSON raw"}
+                      className="text-[10px] uppercase tracking-wider border border-zinc-700 px-2 py-1 hover:border-zinc-500 flex items-center gap-1">
+                      <Code2 className="w-3 h-3" /> {rawMode === c.key ? "form" : "raw"}
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {editing === c.key ? (
+                <div>
+                  {rawMode === c.key ? (
+                    <textarea value={rawValue} onChange={(e) => setRawValue(e.target.value)}
+                      rows={Math.max(4, rawValue.split("\n").length)}
+                      className="w-full bg-black border border-zinc-800 p-2 text-xs text-lime-300 font-mono focus:border-lime-500 outline-none" />
+                  ) : (
+                    <ValueEditor value={draft} onChange={setDraft} path="" keyName={c.key} />
+                  )}
+
+                  <div className="flex gap-2 mt-3">
+                    <button onClick={() => saveEdit(c.key)} disabled={busy}
+                      className="border border-lime-700 hover:border-lime-500 text-lime-300 hover:bg-lime-950/50 px-3 py-1.5 text-[11px] uppercase tracking-wider disabled:opacity-50 flex items-center gap-1">
+                      <Check className="w-3 h-3" /> guardar
+                    </button>
+                    <button onClick={cancelEdit}
+                      className="border border-zinc-700 text-zinc-400 px-3 py-1.5 text-[11px] uppercase tracking-wider hover:border-zinc-500 flex items-center gap-1">
+                      <X className="w-3 h-3" /> cancelar
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <ValuePreview value={c.value} keyName={c.key} />
+              )}
             </div>
-          </section>
-        ))}
+          ))}
+        </div>
       </div>
     </Shell>
   );
@@ -201,7 +247,6 @@ function ValuePreview({ value, keyName }: { value: any; keyName: string }) {
     return (
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
         {Object.entries(value).map(([k, v]) => {
-          // Sub-objeto: renderizar como bloque con sus propios campos
           if (typeof v === "object" && v !== null && !Array.isArray(v)) {
             return (
               <div key={k} className="border border-zinc-900 p-2 md:col-span-2 lg:col-span-3">
@@ -219,7 +264,6 @@ function ValuePreview({ value, keyName }: { value: any; keyName: string }) {
               </div>
             );
           }
-          // Array dentro de un objeto
           if (Array.isArray(v)) {
             return (
               <div key={k} className="border border-zinc-900 p-2 md:col-span-2 lg:col-span-3">
@@ -234,7 +278,6 @@ function ValuePreview({ value, keyName }: { value: any; keyName: string }) {
               </div>
             );
           }
-          // Escalar
           return (
             <div key={k} className="border border-zinc-900 p-2">
               <div className="text-[10px] uppercase tracking-wider text-zinc-500">{humanizeField(k)}</div>
@@ -274,7 +317,6 @@ function ValueEditor({ value, onChange, path, keyName }: { value: any; onChange:
       </div>
     );
   }
-  // Scalar top-level (raro)
   return <FieldEditor field={keyName} value={value} onChange={onChange} />;
 }
 
@@ -317,7 +359,6 @@ function FieldEditor({ field, value, onChange }: { field: string; value: any; on
   }
 
   if (typeof value === "string") {
-    // Si parece enum conocido, mostrar select
     const enumValues = guessEnum(field);
     return (
       <div className="border border-zinc-900 p-3">
@@ -346,7 +387,6 @@ function FieldEditor({ field, value, onChange }: { field: string; value: any; on
     );
   }
 
-  // Sub-objeto: recursar con editors individuales
   if (typeof value === "object" && value !== null && !Array.isArray(value)) {
     return (
       <div className="border border-zinc-900 p-3 md:col-span-2">
@@ -362,7 +402,6 @@ function FieldEditor({ field, value, onChange }: { field: string; value: any; on
     );
   }
 
-  // Fallback: JSON crudo (tipos desconocidos)
   return (
     <div className="border border-zinc-900 p-3 md:col-span-2">
       <div className="text-[10px] uppercase tracking-wider text-zinc-500">{humanizeField(field)}</div>

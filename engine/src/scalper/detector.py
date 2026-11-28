@@ -16,7 +16,7 @@ from src.scalper.indicators import merged_params, scalp_score
 log = structlog.get_logger()
 
 AUTO_DEFAULTS = {
-    "enabled": False, "duration_min": 30, "capital_usd": 25, "max_trades": 5,
+    "enabled": True, "duration_min": 30, "capital_usd": 25, "max_trades": 5,
     "max_sessions_24h": 4, "min_gap_min": 30, "loss_limit_24h_usd": 1.0,
 }
 
@@ -85,6 +85,8 @@ async def _maybe_auto_start(store, raw: dict, candidates: list[dict], now: datet
         return None
 
     best = max(candidates, key=lambda c: c["score"])
+    log.info("scalper_auto_start_attempting", symbol=best["symbol"], score=best["score"],
+             auto_config=auto, recent_sessions=len(recent), recent_autos=len(autos))
     try:
         await store.insert_session({
             "symbol": best["symbol"], "duration_min": int(auto["duration_min"]),
@@ -92,8 +94,27 @@ async def _maybe_auto_start(store, raw: dict, candidates: list[dict], now: datet
             "status": "requested", "auto": True, "requested_at": now.isoformat(),
             "last_note": f"auto-inicio por score {best['score']:.0f}",
         })
-    except Exception as e:  # p.ej. ya hay una sesión viva (índice único)
-        log.warning("scalper_auto_start_failed", error=str(e))
+    except Exception as e:
+        log.error("scalper_auto_start_failed", error=str(e), exc_info=True,
+                  symbol=best["symbol"], score=best["score"])
+        # Also create an alert so the user sees why it failed
+        try:
+            await store.insert_alert(
+                "error", "scalper", f"[scalper] Auto-start falló · {best['symbol']}",
+                f"Score {best['score']:.0f} pero no pudo crear sesión: {str(e)[:200]}",
+                {"symbol": best["symbol"], "score": best["score"], "error": str(e)[:200]},
+            )
+        except Exception:
+            pass
         return None
     log.info("scalper_auto_started", symbol=best["symbol"], score=best["score"])
+    # Alert about successful auto-start
+    try:
+        await store.insert_alert(
+            "info", "scalper", f"[scalper] Auto-start · {best['symbol']} (score {best['score']:.0f})",
+            f"Sesión automática iniciada: {int(auto['duration_min'])} min, ${float(auto['capital_usd'])}, máx {int(auto['max_trades'])} trades",
+            {"symbol": best["symbol"], "score": best["score"], "auto": True},
+        )
+    except Exception:
+        pass
     return best["symbol"]
