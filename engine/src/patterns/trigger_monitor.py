@@ -228,7 +228,7 @@ async def _check_trigger(db, trigger: dict, now: datetime) -> None:
             "title": f"[patrón] {trigger['pattern_name']} → {action} {symbol}",
             "message": f"{detail} · Notional ${notional:.2f} · Stop ${stop:.2f} · Target ${target:.2f}",
             "metadata": {"trigger_id": trigger_id, "symbol": symbol, "decision_id": inserted.get("id"),
-                         "href": f"/charts?symbol={symbol}"},
+                         "href": f"/charts?symbol={symbol}", "timeframe": trigger.get("timeframe", "1h")},
         })
 
         log.info("trigger_executed", id=trigger_id, symbol=symbol, action=action, notional=round(notional, 2))

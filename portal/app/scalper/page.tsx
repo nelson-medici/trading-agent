@@ -5,7 +5,7 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase";
 import Shell from "@/components/Shell";
 import { formatUsd } from "@/lib/utils";
-import { Play, Square, AlertTriangle, Radar, ChevronDown, ChevronRight } from "lucide-react";
+import { Play, Square, AlertTriangle, Radar, ChevronDown, ChevronRight, BarChart3 } from "lucide-react";
 
 interface Session {
   id: string;
@@ -224,7 +224,13 @@ export default function ScalperPage() {
                   {live.status === "requested" ? "Esperando al engine…" : "Sesión en curso"}
                   {live.auto && <span className="border border-violet-600 text-violet-300 px-1.5 py-0.5 tracking-wider">auto</span>}
                 </div>
-                <div className="text-2xl text-zinc-100 mt-1">{live.symbol}</div>
+                <div className="text-2xl text-zinc-100 mt-1 flex items-center gap-3">
+                  {live.symbol}
+                  <Link href={`/charts?symbol=${encodeURIComponent(live.symbol)}`}
+                    className="text-[10px] uppercase tracking-wider border border-zinc-700 text-zinc-400 hover:text-lime-400 hover:border-lime-700 px-2 py-1 flex items-center gap-1">
+                    <BarChart3 className="w-3 h-3" /> chart
+                  </Link>
+                </div>
                 <div className="text-[10px] text-zinc-500 mt-0.5">
                   {live.duration_min} min · capital {formatUsd(Number(live.capital_usd ?? live.max_capital_usd))} · máx {live.max_trades} trades
                 </div>
