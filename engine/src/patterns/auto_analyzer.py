@@ -440,6 +440,11 @@ async def _analyze_symbol(db, symbol: str, timeframe: str, pool: str,
         nearest_sup = max(sup_prices) if sup_prices else None
         nearest_res = min(res_prices) if res_prices else None
 
+        # Read active sentiment signals
+        from src.sentiment.provider import get_active_sentiment, compute_sentiment_modifier
+        sentiment_signals = await get_active_sentiment(db, symbol)
+        sent_modifier, sent_reason = compute_sentiment_modifier(sentiment_signals)
+
         ctx = compute_contextual_score(
             patterns=detected_patterns,
             phase=phase,
@@ -452,11 +457,14 @@ async def _analyze_symbol(db, symbol: str, timeframe: str, pool: str,
             price=price,
             nearest_support=nearest_sup,
             nearest_resistance=nearest_res,
+            sentiment_modifier=sent_modifier,
+            sentiment_reason=sent_reason,
         )
 
         log.info("contextual_score_computed",
                  symbol=symbol, score=ctx.total, action=ctx.action,
-                 label=ctx.confidence_label, reasons=ctx.reasoning[:2])
+                 label=ctx.confidence_label, reasons=ctx.reasoning[:2],
+                 sentiment_modifier=sent_modifier)
 
     except Exception as e:
         log.warning("contextual_score_error", symbol=symbol, error=str(e))

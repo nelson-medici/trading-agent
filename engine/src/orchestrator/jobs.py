@@ -797,6 +797,15 @@ async def run_auto_analyzer() -> None:
         log.error("auto_analyzer_failed", error=str(e), exc_info=True)
 
 
+async def run_sentiment_scan() -> None:
+    """Cada 30 min. Corre el provider de sentimiento configurado."""
+    try:
+        from src.sentiment.job import run_sentiment_scan
+        await run_sentiment_scan()
+    except Exception as e:
+        log.error("sentiment_scan_failed", error=str(e), exc_info=True)
+
+
 # ============================================================
 # ROLLOVER / BACKUP / REPORTS
 # ============================================================

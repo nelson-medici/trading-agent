@@ -463,8 +463,10 @@ def compute_contextual_score(
     nearest_support: float | None = None,
     nearest_resistance: float | None = None,
     is_breakout: bool = False,
+    sentiment_modifier: int = 0,     # -100 a +100 de la capa de sentimiento
+    sentiment_reason: str = "",       # razón del sentimiento
 ) -> ContextScore:
-    """Calcula el score contextual combinando las 6 dimensiones."""
+    """Calcula el score contextual combinando las 6 dimensiones + sentimiento."""
 
     # Determinar bias dominante
     bullish = sum(1 for p in patterns if p.get("bias") == "bullish")
@@ -489,6 +491,11 @@ def compute_contextual_score(
         struct_score * WEIGHTS["structure"] / 100 +
         mom_score * WEIGHTS["momentum"] / 100
     )
+
+    # Apply sentiment modifier (capa sensacionalista)
+    if sentiment_modifier != 0:
+        total += sentiment_modifier * 0.3  # Sentiment affects up to ±30 points
+        log.info("sentiment_applied", modifier=sentiment_modifier, reason=sentiment_reason)
 
     # Clamp
     total = min(100, max(0, total))
@@ -516,7 +523,8 @@ def compute_contextual_score(
         label = "Sin setup"
 
     # Top reasoning (máx 4 factores más relevantes)
-    all_reasons = pat_reasons + phase_reasons + mtf_reasons + vol_reasons + struct_reasons + mom_reasons
+    sentiment_reasons = [sentiment_reason] if sentiment_reason else []
+    all_reasons = pat_reasons + phase_reasons + mtf_reasons + vol_reasons + struct_reasons + mom_reasons + sentiment_reasons
     # Filtrar vacíos y tomar los primeros 4
     reasoning = [r for r in all_reasons if r][:4]
 
