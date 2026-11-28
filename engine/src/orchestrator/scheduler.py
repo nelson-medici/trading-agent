@@ -51,6 +51,10 @@ def setup_jobs() -> None:
     scheduler.add_job(jobs.detect_scalper_opportunities, IntervalTrigger(minutes=3), id="scalper_scan",
                       max_instances=1, coalesce=True)
 
+    # Pattern trigger monitor cada 1 min
+    scheduler.add_job(jobs.run_trigger_monitor, IntervalTrigger(minutes=1), id="trigger_monitor",
+                      max_instances=1, coalesce=True)
+
     # Rollovers y reports
     scheduler.add_job(jobs.backup_db, CronTrigger(hour=4, minute=0), id="backup")
     scheduler.add_job(jobs.daily_report, CronTrigger(hour=23, minute=55), id="daily")

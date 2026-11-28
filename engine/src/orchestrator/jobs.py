@@ -722,6 +722,15 @@ async def detect_scalper_opportunities() -> None:
         log.error("scalper_scan_job_failed", error=str(e), exc_info=True)
 
 
+async def run_trigger_monitor() -> None:
+    """Cada 1 min. Verifica pattern triggers en 'watching' y ejecuta si se confirman."""
+    try:
+        from src.patterns.trigger_monitor import run_trigger_monitor
+        await run_trigger_monitor()
+    except Exception as e:
+        log.error("trigger_monitor_failed", error=str(e), exc_info=True)
+
+
 # ============================================================
 # ROLLOVER / BACKUP / REPORTS
 # ============================================================

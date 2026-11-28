@@ -459,10 +459,54 @@ export default function ChartsPage() {
               {analysis.triggerCondition && (
                 <div className="border border-amber-900/40 bg-amber-950/10 px-3 py-2 mb-3 flex items-start gap-2">
                   <Eye className="w-3.5 h-3.5 text-amber-400 mt-0.5 flex-shrink-0" />
-                  <div>
+                  <div className="flex-1">
                     <div className="text-[10px] uppercase tracking-wider text-amber-400 mb-0.5">Trigger · esperando confirmación</div>
                     <div className="text-[11px] text-amber-200/80">{analysis.triggerCondition}</div>
                   </div>
+                  <button onClick={async () => {
+                    // Encontrar el patrón no confirmado para extraer datos del trigger
+                    const pending = analysis.patterns.find((p) => !p.confirmed);
+                    if (!pending) return;
+                    // Derivar trigger_type y trigger_price de la regla
+                    let triggerType = "breakout_above";
+                    let triggerPrice = analysis.price;
+                    const nearRes = analysis.levels.find((l) => l.kind === "resistance" && l.price > analysis.price);
+                    const nearSup = analysis.levels.find((l) => l.kind === "support" && l.price < analysis.price);
+                    if (pending.bias === "bullish" && nearRes) {
+                      triggerType = "breakout_above";
+                      triggerPrice = nearRes.price;
+                    } else if (pending.bias === "bearish" && nearSup) {
+                      triggerType = "breakout_below";
+                      triggerPrice = nearSup.price;
+                    } else if (pending.name.includes("RSI") && pending.bias === "bullish") {
+                      triggerType = "rsi_cross_above";
+                    } else if (pending.name.includes("RSI") && pending.bias === "bearish") {
+                      triggerType = "rsi_cross_below";
+                    }
+                    const { error } = await supabase.from("pattern_triggers").insert({
+                      symbol,
+                      timeframe,
+                      pattern_name: pending.name,
+                      bias: pending.bias,
+                      confirmation_rule: pending.confirmationRule,
+                      trigger_type: triggerType,
+                      trigger_price: triggerType.startsWith("breakout") ? triggerPrice : null,
+                      trigger_rsi: triggerType.startsWith("rsi") ? (pending.bias === "bullish" ? 30 : 70) : null,
+                      require_volume: true,
+                      action: pending.bias === "bullish" ? "BUY" : "ALERT_ONLY",
+                      pool: "tactical",
+                      max_capital_usd: 25,
+                      expires_at: new Date(Date.now() + 24 * 3600_000).toISOString(),
+                      analysis_snapshot: analysis,
+                      created_by: "manual",
+                    });
+                    if (!error) {
+                      alert(`Trigger creado: ${pending.name} en ${symbol}. El engine lo vigila cada 1 min.`);
+                    }
+                  }}
+                    className="flex items-center gap-1 border border-amber-700 px-2.5 py-1 text-[9px] uppercase tracking-wider text-amber-300 hover:bg-amber-950/40 flex-shrink-0">
+                    <Eye className="w-3 h-3" /> vigilar
+                  </button>
                 </div>
               )}
 
