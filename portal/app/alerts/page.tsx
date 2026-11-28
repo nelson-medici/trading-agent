@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase";
 import Shell from "@/components/Shell";
-import { Bell, AlertTriangle, AlertOctagon, Info, CheckCheck, Filter as FilterIcon } from "lucide-react";
+import { Bell, AlertTriangle, AlertOctagon, Info, CheckCheck, Filter as FilterIcon, Trash2 } from "lucide-react";
 
 interface Alert {
   id: string;
@@ -100,6 +100,14 @@ export default function AlertsPage() {
     setBusy(false);
   }
 
+  async function del(ids: string[]) {
+    if (!ids.length) return;
+    setBusy(true);
+    await supabase.from("alerts").delete().in("id", ids);
+    setAlerts((prev) => prev.filter((a) => !ids.includes(a.id)));
+    setBusy(false);
+  }
+
   if (loading) return null;
 
   const unreadVisible = filtered.filter((a) => !a.acknowledged).map((a) => a.id);
@@ -155,7 +163,13 @@ export default function AlertsPage() {
             {unreadVisible.length > 0 && (
               <button onClick={() => ack(unreadVisible)} disabled={busy}
                 className="flex items-center gap-1.5 border border-violet-700 text-violet-300 hover:bg-violet-950/40 px-2.5 py-1 text-[10px] uppercase tracking-wider disabled:opacity-50">
-                <CheckCheck className="w-3 h-3" /> Marcar {unreadVisible.length} como leídas
+                <CheckCheck className="w-3 h-3" /> Marcar {unreadVisible.length} leídas
+              </button>
+            )}
+            {filtered.length > 0 && (
+              <button onClick={() => { if (confirm(`Borrar ${filtered.length} alertas visibles?`)) del(filtered.map((a) => a.id)); }} disabled={busy}
+                className="flex items-center gap-1.5 border border-red-900 text-red-400 hover:bg-red-950/30 px-2.5 py-1 text-[10px] uppercase tracking-wider disabled:opacity-50">
+                <Trash2 className="w-3 h-3" /> Borrar {filtered.length}
               </button>
             )}
           </div>
@@ -168,7 +182,7 @@ export default function AlertsPage() {
           </div>
         ) : (
           <div className="border border-zinc-800 bg-zinc-950 divide-y divide-zinc-900">
-            {filtered.map((a) => <Row key={a.id} alert={a} now={now} onAck={() => ack([a.id])} />)}
+            {filtered.map((a) => <Row key={a.id} alert={a} now={now} onAck={() => ack([a.id])} onDel={() => del([a.id])} />)}
           </div>
         )}
       </div>
@@ -176,7 +190,7 @@ export default function AlertsPage() {
   );
 }
 
-function Row({ alert: a, now, onAck }: { alert: Alert; now: number; onAck: () => void }) {
+function Row({ alert: a, now, onAck, onDel }: { alert: Alert; now: number; onAck: () => void; onDel: () => void }) {
   const icon = {
     critical: <AlertOctagon className="w-3.5 h-3.5 text-red-400" />,
     warn: <AlertTriangle className="w-3.5 h-3.5 text-amber-400" />,
@@ -208,11 +222,16 @@ function Row({ alert: a, now, onAck }: { alert: Alert; now: number; onAck: () =>
             <span className="text-[9px] text-zinc-700 tabular-nums">{new Date(a.created_at).toLocaleString()}</span>
             {href && <Link href={href} className="text-[9px] uppercase tracking-wider text-violet-400 hover:underline">abrir →</Link>}
             {!href && symbol && <Link href={`/charts?symbol=${encodeURIComponent(symbol)}`} className="text-[9px] uppercase tracking-wider text-violet-400 hover:underline">chart →</Link>}
-            {!a.acknowledged && (
-              <button onClick={onAck} className="ml-auto text-[9px] uppercase tracking-wider text-violet-400/80 hover:text-violet-300">
-                marcar leída
+            <span className="ml-auto flex items-center gap-2">
+              {!a.acknowledged && (
+                <button onClick={onAck} className="text-[9px] uppercase tracking-wider text-violet-400/80 hover:text-violet-300">
+                  marcar leída
+                </button>
+              )}
+              <button onClick={onDel} className="text-[9px] uppercase tracking-wider text-zinc-600 hover:text-red-400" title="Borrar">
+                <Trash2 className="w-3 h-3" />
               </button>
-            )}
+            </span>
           </div>
         </div>
       </div>
