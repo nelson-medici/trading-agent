@@ -364,23 +364,23 @@ export function analyzeMarket(candles: Candle[], symbol: string, timeframe: stri
 
   if (confirmedBullish.length >= 2 && volumeRatio >= 1.0) {
     action = "BUY";
-    reading = `Señal de compra: ${confirmedBullish.map((p) => p.name).join(" + ")}. Volumen acompaña (${volumeRatio.toFixed(1)}×).`;
+    reading = `${confirmedBullish.map((p) => p.name).join(" + ")} · Vol ${volumeRatio.toFixed(1)}×`;
   } else if (confirmedBearish.length >= 2) {
     action = "SELL";
-    reading = `Señal de venta: ${confirmedBearish.map((p) => p.name).join(" + ")}.`;
+    reading = confirmedBearish.map((p) => p.name).join(" + ");
   } else if (bullishPatterns.length > 0 && !bullishPatterns.some((p) => p.confirmed)) {
     action = "WATCH";
     const pending = bullishPatterns.find((p) => !p.confirmed);
-    reading = `Patrón en formación: ${pending?.name}. ${pending?.confirmationRule}.`;
+    reading = `${pending?.name} en formación`;
     triggerCondition = pending?.confirmationRule ?? null;
   } else if (bearishPatterns.length > 0 && !bearishPatterns.some((p) => p.confirmed)) {
     action = "WATCH";
     const pending = bearishPatterns.find((p) => !p.confirmed);
-    reading = `Patrón en formación: ${pending?.name}. ${pending?.confirmationRule}.`;
+    reading = `${pending?.name} en formación`;
     triggerCondition = pending?.confirmationRule ?? null;
   } else {
     action = "WAIT";
-    reading = "Sin patrones accionables. Mercado sin dirección clara. No operar es una decisión válida.";
+    reading = "Sin setup claro";
   }
 
   // ------------------------------------------------------------------
@@ -393,18 +393,19 @@ export function analyzeMarket(candles: Candle[], symbol: string, timeframe: stri
   if (action === "BUY") {
     const stopPrice = nearSup ? nearSup.price : price * (1 - atrPct / 100 * 2);
     const targetPrice = nearRes ? nearRes.price : price * (1 + atrPct / 100 * 3);
-    forecast = `COMPRAR ${symbol} a ~$${price.toFixed(2)}. Stop: $${stopPrice.toFixed(2)} (${((price - stopPrice) / price * 100).toFixed(1)}%). Target: $${targetPrice.toFixed(2)} (+${((targetPrice - price) / price * 100).toFixed(1)}%). R:R ${((targetPrice - price) / (price - stopPrice)).toFixed(1)}:1`;
+    const rr = (price - stopPrice) > 0 ? ((targetPrice - price) / (price - stopPrice)).toFixed(1) : "∞";
+    forecast = `Comprar → Target $${targetPrice.toFixed(0)} (+${((targetPrice - price) / price * 100).toFixed(1)}%) · Stop $${stopPrice.toFixed(0)} · R:R ${rr}:1`;
   } else if (action === "SELL") {
-    forecast = `SALIR de ${symbol}. Presión bajista: ${confirmedBearish.map((p) => p.name).join(", ")}. ${nearSup ? `Soporte en $${nearSup.price.toFixed(2)} podría frenar` : "Sin soporte cercano"}.`;
+    forecast = `Salir — ${confirmedBearish.map((p) => p.name).join(" + ")}${nearSup ? ` · Soporte $${nearSup.price.toFixed(0)}` : ""}`;
   } else if (action === "WATCH") {
     const pending = [...bullishPatterns, ...bearishPatterns].find((p) => !p.confirmed);
     if (pending) {
-      forecast = `ESPERAR confirmación de ${pending.name}. ${pending.confirmationRule}. ${pending.bias === "bullish" ? "Si confirma → entrada larga" : "Si confirma → salir o short"}.`;
+      forecast = `Esperando: ${pending.confirmationRule}`;
     } else {
-      forecast = `OBSERVAR — hay señales mixtas. Esperar que el precio defina dirección.`;
+      forecast = `Señales mixtas — esperar definición`;
     }
   } else {
-    forecast = `NO OPERAR — mercado lateral, sin setup claro. Preservar capital hasta que se forme un patrón accionable.`;
+    forecast = `Sin setup — preservar capital`;
   }
 
   // ------------------------------------------------------------------

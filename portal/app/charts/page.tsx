@@ -271,6 +271,50 @@ export default function ChartsPage() {
       }
     }
 
+    // Price projection (expected path based on analysis)
+    if (analysis && candles.length > 5) {
+      const lastCandle = candles[candles.length - 1];
+      const price = analysis.price;
+      const nearSup = analysis.levels.filter((l) => l.kind === "support" && l.price < price).sort((a, b) => b.price - a.price)[0];
+      const nearRes = analysis.levels.filter((l) => l.kind === "resistance" && l.price > price).sort((a, b) => a.price - b.price)[0];
+
+      // Calculate time steps for future projection (extend beyond chart)
+      const lastTime = typeof lastCandle.time === "string" ? new Date(lastCandle.time).getTime() / 1000 : lastCandle.time;
+      const barDuration = candles.length >= 2
+        ? ((typeof candles[candles.length - 1].time === "string" ? new Date(candles[candles.length - 1].time).getTime() : (candles[candles.length - 1].time as number) * 1000) -
+           (typeof candles[candles.length - 2].time === "string" ? new Date(candles[candles.length - 2].time).getTime() : (candles[candles.length - 2].time as number) * 1000)) / 1000
+        : 3600;
+
+      const projPoints: { time: number | string; value: number }[] = [{ time: lastCandle.time, value: price }];
+
+      if (analysis.action === "BUY" || (analysis.action === "WATCH" && analysis.bias === "bullish")) {
+        // Bullish projection: dip to support → bounce to target
+        const dip = nearSup ? nearSup.price : price * 0.98;
+        const target = nearRes ? nearRes.price : price * 1.04;
+        projPoints.push({ time: lastTime + barDuration * 3, value: dip });
+        projPoints.push({ time: lastTime + barDuration * 8, value: target });
+      } else if (analysis.action === "SELL" || (analysis.action === "WATCH" && analysis.bias === "bearish")) {
+        // Bearish projection: bounce to resistance → fall to target
+        const bounce = nearRes ? nearRes.price : price * 1.02;
+        const target = nearSup ? nearSup.price : price * 0.96;
+        projPoints.push({ time: lastTime + barDuration * 3, value: bounce });
+        projPoints.push({ time: lastTime + barDuration * 8, value: target });
+      } else {
+        // Lateral: oscillate
+        const mid = price;
+        const range = analysis.atrPct / 100 * price * 2;
+        projPoints.push({ time: lastTime + barDuration * 4, value: mid + range * 0.5 });
+        projPoints.push({ time: lastTime + barDuration * 8, value: mid - range * 0.3 });
+      }
+
+      lines.push({
+        points: projPoints,
+        color: analysis.bias === "bullish" ? "#fbbf2480" : analysis.bias === "bearish" ? "#f97316" : "#71717a80",
+        lineWidth: 2,
+        lineStyle: 1 as any, // Dotted
+      });
+    }
+
     // Structure channels from market structure pivots
     if (showStructure && marketStructure.points.length >= 3) {
       const highs = marketStructure.points.filter((p) => p.label === "HH" || p.label === "LH").slice(-3);
@@ -942,16 +986,10 @@ export default function ChartsPage() {
                 </div>
               )}
 
-              {/* Reading — solo si es importante (no WAIT) */}
-              {analysis.action !== "WAIT" && (
-                <div className="px-3 py-2 border-t border-zinc-900">
-                  <div className="text-[11px] text-zinc-400 leading-relaxed">{analysis.reading}</div>
-                </div>
-              )}
-
-              {/* Timestamp */}
-              <div className="px-3 py-1.5 border-t border-zinc-900 text-[9px] text-zinc-700 tabular-nums">
-                {new Date(analysis.timestamp).toLocaleTimeString()} · {analysis.patterns.filter((p) => p.confirmed).length}/{analysis.patterns.length} confirmados
+              {/* Footer */}
+              <div className="px-3 py-1.5 border-t border-zinc-900 flex items-center justify-between text-[9px] text-zinc-600 tabular-nums">
+                <span>{analysis.reading}</span>
+                <span>{new Date(analysis.timestamp).toLocaleTimeString()}</span>
               </div>
             </div>
           )}
