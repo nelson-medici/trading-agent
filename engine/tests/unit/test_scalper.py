@@ -297,7 +297,7 @@ def test_auto_start_launches_session_then_runs_it():
     px = float(df["close"].iloc[-1])
     run(tick(store, FakeMarket(df, px * 0.9999, px * 1.0001), T0 + timedelta(seconds=15)))
     assert store.session["status"] == "active"
-    assert "AUTO" in [a for a in store.alerts if a[1] == "scalper"][0][2]
+    assert "auto" in [a for a in store.alerts if a[1] == "scalper"][0][2].lower()
     # con sesión viva el detector no lanza otra
     run(scan(store, FakeMarket(df, 1, 1), T0 + timedelta(minutes=3)))
     assert len(store.history) == 1
