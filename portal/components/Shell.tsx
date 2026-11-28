@@ -3,9 +3,9 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase";
-import { Activity, Wallet, Brain, Settings as SettingsIcon, Shield, Terminal, LogOut, User, Zap, CandlestickChart, History, Bell, Timer, AlertTriangle, AlertOctagon, Info, Menu, X } from "lucide-react";
+import { Activity, Wallet, Brain, Settings as SettingsIcon, Shield, Terminal, LogOut, User, Zap, CandlestickChart, History, Bell, Timer, AlertTriangle, AlertOctagon, Info, Menu, X, Eye } from "lucide-react";
 
-type View = "overview" | "portfolio" | "decisions" | "charts" | "strategies" | "scalper" | "history" | "alerts" | "config" | "control";
+type View = "overview" | "portfolio" | "decisions" | "charts" | "triggers" | "strategies" | "scalper" | "history" | "alerts" | "config" | "control";
 
 // Configuración y Control no están en la nav: Config es un CTA del header,
 // Control vive en el menú de usuario (operación sensible, no navegación diaria)
@@ -14,6 +14,7 @@ const NAV: { id: View; label: string; icon: any; href: string }[] = [
   { id: "portfolio", label: "Portafolio", icon: Wallet, href: "/portfolio" },
   { id: "decisions", label: "Decisiones", icon: Brain, href: "/decisions" },
   { id: "charts", label: "Charts", icon: CandlestickChart, href: "/charts" },
+  { id: "triggers", label: "Triggers", icon: Eye, href: "/triggers" },
   { id: "scalper", label: "Scalper", icon: Timer, href: "/scalper" },
   { id: "history", label: "Histórico", icon: History, href: "/history" },
 ];
@@ -23,6 +24,7 @@ const VIEW_META: Record<View, { label: string }> = {
   portfolio: { label: "Portafolio" },
   decisions: { label: "Decisiones" },
   charts: { label: "Charts" },
+  triggers: { label: "Triggers" },
   strategies: { label: "Strategies" },
   scalper: { label: "Scalper manual" },
   history: { label: "Histórico de trades" },
