@@ -110,11 +110,6 @@ export default function ConfigPage() {
   return (
     <Shell current="config">
       <div className="space-y-4">
-        {/* Warning banner */}
-        <div className="border border-amber-900 bg-amber-950/10 p-3 text-[11px] text-amber-300">
-          ⚠️ Cambios acá afectan directamente el comportamiento del engine. Los parámetros de riesgo son críticos — no los subas sin análisis.
-        </div>
-
         {msg && (
           <div className={`border px-4 py-2 text-xs ${msg.startsWith("Error") ? "border-red-700 bg-red-950/30 text-red-300" : "border-lime-700 bg-lime-950/30 text-lime-300"}`}>
             {msg}
