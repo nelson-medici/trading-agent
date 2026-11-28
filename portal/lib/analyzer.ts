@@ -53,8 +53,13 @@ export interface AnalysisResult {
   biasStrength: number;  // 0-100
   action: ActionType;
   reading: string;  // narrativa corta
+  forecast: string;  // pronóstico accionable: qué hacer y cuándo
   details: string[];  // bullets de detalle
   triggerCondition: string | null;  // si hay un trigger, qué esperar
+
+  // Pivots para dibujar triángulos y canales
+  pivotHighs: { idx: number; price: number; time: string | number }[];
+  pivotLows: { idx: number; price: number; time: string | number }[];
 }
 
 // ------------------------------------------------------------------
@@ -89,9 +94,17 @@ function atr(candles: Candle[], period = 14): number {
   return atrVal;
 }
 
-function detectTriangleSimple(candles: Candle[], lookback = 3): DetectedPattern | null {
-  if (candles.length < 30) return null;
+interface TriangleResult {
+  pattern: DetectedPattern | null;
+  pivotHighs: { idx: number; price: number; time: string | number }[];
+  pivotLows: { idx: number; price: number; time: string | number }[];
+}
 
+function detectTriangleSimple(candles: Candle[], lookback = 3): TriangleResult {
+  const empty: TriangleResult = { pattern: null, pivotHighs: [], pivotLows: [] };
+  if (candles.length < 30) return empty;
+
+  const offset = Math.max(0, candles.length - 40);
   const recent = candles.slice(-40);
   const pivotHighs: { idx: number; price: number }[] = [];
   const pivotLows: { idx: number; price: number }[] = [];
@@ -107,7 +120,11 @@ function detectTriangleSimple(candles: Candle[], lookback = 3): DetectedPattern 
     if (isLow) pivotLows.push({ idx: i, price: recent[i].low });
   }
 
-  if (pivotHighs.length < 2 || pivotLows.length < 2) return null;
+  // Map pivots to include candle time for drawing
+  const pivotsH = pivotHighs.map((p) => ({ ...p, idx: p.idx + offset, time: candles[p.idx + offset]?.time ?? 0 }));
+  const pivotsL = pivotLows.map((p) => ({ ...p, idx: p.idx + offset, time: candles[p.idx + offset]?.time ?? 0 }));
+
+  if (pivotHighs.length < 2 || pivotLows.length < 2) return { pattern: null, pivotHighs: pivotsH, pivotLows: pivotsL };
 
   const ph = pivotHighs.slice(-3);
   const pl = pivotLows.slice(-3);
@@ -124,40 +141,49 @@ function detectTriangleSimple(candles: Candle[], lookback = 3): DetectedPattern 
   if (highsDescending && lowsAscending) {
     const breakoutUp = lastClose > lastHigh;
     return {
-      name: "Triángulo Simétrico",
-      description: `Máximos decrecientes + mínimos crecientes. Rango comprimido ${((lastHigh - lastLow) / lastLow * 100).toFixed(1)}%.`,
-      bias: breakoutUp ? "bullish" : "neutral",
-      confirmationRule: `Cierre por encima de ${lastHigh.toFixed(2)} con volumen para confirmar ruptura alcista`,
-      confirmed: breakoutUp,
-      strength: breakoutUp ? 75 : 50,
+      pattern: {
+        name: "Triángulo Simétrico",
+        description: `Máximos decrecientes + mínimos crecientes. Rango comprimido ${((lastHigh - lastLow) / lastLow * 100).toFixed(1)}%.`,
+        bias: breakoutUp ? "bullish" : "neutral",
+        confirmationRule: `Cierre por encima de ${lastHigh.toFixed(2)} con volumen para confirmar ruptura alcista`,
+        confirmed: breakoutUp,
+        strength: breakoutUp ? 75 : 50,
+      },
+      pivotHighs: pivotsH, pivotLows: pivotsL,
     };
   }
 
   if (highsFlat && lowsAscending) {
     const breakoutUp = lastClose > lastHigh;
     return {
-      name: "Triángulo Ascendente",
-      description: `Resistencia plana en ${lastHigh.toFixed(2)} con mínimos crecientes. Sesgo alcista.`,
-      bias: "bullish",
-      confirmationRule: `Cierre por encima de ${lastHigh.toFixed(2)} con volumen > promedio`,
-      confirmed: breakoutUp,
-      strength: breakoutUp ? 80 : 60,
+      pattern: {
+        name: "Triángulo Ascendente",
+        description: `Resistencia plana en ${lastHigh.toFixed(2)} con mínimos crecientes. Sesgo alcista.`,
+        bias: "bullish",
+        confirmationRule: `Cierre por encima de ${lastHigh.toFixed(2)} con volumen > promedio`,
+        confirmed: breakoutUp,
+        strength: breakoutUp ? 80 : 60,
+      },
+      pivotHighs: pivotsH, pivotLows: pivotsL,
     };
   }
 
   if (highsDescending && lowsFlat) {
     const breakoutDown = lastClose < lastLow;
     return {
-      name: "Triángulo Descendente",
-      description: `Soporte plano en ${lastLow.toFixed(2)} con máximos decrecientes. Sesgo bajista.`,
-      bias: "bearish",
-      confirmationRule: `Cierre por debajo de ${lastLow.toFixed(2)} con volumen para confirmar quiebre`,
-      confirmed: breakoutDown,
-      strength: breakoutDown ? 80 : 60,
+      pattern: {
+        name: "Triángulo Descendente",
+        description: `Soporte plano en ${lastLow.toFixed(2)} con máximos decrecientes. Sesgo bajista.`,
+        bias: "bearish",
+        confirmationRule: `Cierre por debajo de ${lastLow.toFixed(2)} con volumen para confirmar quiebre`,
+        confirmed: breakoutDown,
+        strength: breakoutDown ? 80 : 60,
+      },
+      pivotHighs: pivotsH, pivotLows: pivotsL,
     };
   }
 
-  return null;
+  return { pattern: null, pivotHighs: pivotsH, pivotLows: pivotsL };
 }
 
 // ------------------------------------------------------------------
@@ -244,10 +270,10 @@ export function analyzeMarket(candles: Candle[], symbol: string, timeframe: stri
   }
 
   // 3. Triángulos
-  const triangle = detectTriangleSimple(candles);
-  if (triangle) {
-    patterns.push(triangle);
-    details.push(`${triangle.name}: ${triangle.description}`);
+  const triangleResult = detectTriangleSimple(candles);
+  if (triangleResult.pattern) {
+    patterns.push(triangleResult.pattern);
+    details.push(`${triangleResult.pattern.name}: ${triangleResult.pattern.description}`);
   }
 
   // 4. FVG sin llenar
@@ -353,12 +379,38 @@ export function analyzeMarket(candles: Candle[], symbol: string, timeframe: stri
     reading = "Sin patrones accionables. Mercado sin dirección clara. No operar es una decisión válida.";
   }
 
+  // ------------------------------------------------------------------
+  // PRONÓSTICO ACCIONABLE
+  // ------------------------------------------------------------------
+  let forecast = "";
+  const nearSup = levels.filter((l) => l.kind === "support" && l.price < price).sort((a, b) => b.price - a.price)[0];
+  const nearRes = levels.filter((l) => l.kind === "resistance" && l.price > price).sort((a, b) => a.price - b.price)[0];
+
+  if (action === "BUY") {
+    const stopPrice = nearSup ? nearSup.price : price * (1 - atrPct / 100 * 2);
+    const targetPrice = nearRes ? nearRes.price : price * (1 + atrPct / 100 * 3);
+    forecast = `COMPRAR ${symbol} a ~$${price.toFixed(2)}. Stop: $${stopPrice.toFixed(2)} (${((price - stopPrice) / price * 100).toFixed(1)}%). Target: $${targetPrice.toFixed(2)} (+${((targetPrice - price) / price * 100).toFixed(1)}%). R:R ${((targetPrice - price) / (price - stopPrice)).toFixed(1)}:1`;
+  } else if (action === "SELL") {
+    forecast = `SALIR de ${symbol}. Presión bajista: ${confirmedBearish.map((p) => p.name).join(", ")}. ${nearSup ? `Soporte en $${nearSup.price.toFixed(2)} podría frenar` : "Sin soporte cercano"}.`;
+  } else if (action === "WATCH") {
+    const pending = [...bullishPatterns, ...bearishPatterns].find((p) => !p.confirmed);
+    if (pending) {
+      forecast = `ESPERAR confirmación de ${pending.name}. ${pending.confirmationRule}. ${pending.bias === "bullish" ? "Si confirma → entrada larga" : "Si confirma → salir o short"}.`;
+    } else {
+      forecast = `OBSERVAR — hay señales mixtas. Esperar que el precio defina dirección.`;
+    }
+  } else {
+    forecast = `NO OPERAR — mercado lateral, sin setup claro. Preservar capital hasta que se forme un patrón accionable.`;
+  }
+
   return {
     timestamp: new Date().toISOString(),
     symbol, timeframe, price,
     patterns, levels, fvgs, rejections, volumeProfile,
     ema9, ema21, ema50, ema200, rsi: rsiVal,
     atr: atrVal, atrPct, volumeRatio,
-    bias, biasStrength, action, reading, details, triggerCondition,
+    bias, biasStrength, action, reading, forecast, details, triggerCondition,
+    pivotHighs: triangleResult.pivotHighs,
+    pivotLows: triangleResult.pivotLows,
   };
 }

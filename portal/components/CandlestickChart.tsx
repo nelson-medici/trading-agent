@@ -41,11 +41,20 @@ export interface HorizontalLine {
   lineStyle?: LineStyle;
 }
 
+export interface TrendLine {
+  points: { time: number | string; value: number }[];
+  color: string;
+  lineWidth?: number;
+  lineStyle?: LineStyle;
+  title?: string;
+}
+
 interface Props {
   candles: Candle[];
   emas?: EmaOverlay[];
   markers?: Marker[];
   horizontalLines?: HorizontalLine[];
+  trendLines?: TrendLine[];
   height?: number;
 }
 
@@ -55,11 +64,12 @@ function toTime(t: number | string): UTCTimestamp {
   return Math.floor(new Date(t).getTime() / 1000) as UTCTimestamp;
 }
 
-export default function CandlestickChartComponent({ candles, emas = [], markers = [], horizontalLines = [], height = 480 }: Props) {
+export default function CandlestickChartComponent({ candles, emas = [], markers = [], horizontalLines = [], trendLines = [], height = 480 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const candleSeriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
   const emaSeriesRef = useRef<Map<number, ISeriesApi<"Line">>>(new Map());
+  const trendLineSeriesRef = useRef<ISeriesApi<"Line">[]>([]);
   const volumeSeriesRef = useRef<ISeriesApi<"Histogram"> | null>(null);
   const priceLinesRef = useRef<any[]>([]);
 
@@ -185,6 +195,31 @@ export default function CandlestickChartComponent({ candles, emas = [], markers 
     }));
     candleSeriesRef.current.setMarkers(mapped);
   }, [markers]);
+
+  // Update trend lines (diagonal lines connecting points)
+  useEffect(() => {
+    if (!chartRef.current) return;
+    // Remove previous
+    trendLineSeriesRef.current.forEach((s) => { try { chartRef.current?.removeSeries(s); } catch {} });
+    trendLineSeriesRef.current = [];
+
+    for (const tl of trendLines) {
+      if (tl.points.length < 2) continue;
+      const series = chartRef.current.addLineSeries({
+        color: tl.color,
+        lineWidth: (tl.lineWidth ?? 1) as 1 | 2 | 3 | 4,
+        lineStyle: tl.lineStyle ?? LineStyle.Dashed,
+        priceLineVisible: false,
+        lastValueVisible: false,
+        crosshairMarkerVisible: false,
+        title: tl.title ?? "",
+      });
+      series.setData(
+        tl.points.map((p) => ({ time: toTime(p.time), value: p.value }))
+      );
+      trendLineSeriesRef.current.push(series);
+    }
+  }, [trendLines]);
 
   // Update horizontal lines
   useEffect(() => {

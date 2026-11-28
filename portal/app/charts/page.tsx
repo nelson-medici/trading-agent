@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase";
 import { useRouter } from "next/navigation";
 import Shell from "@/components/Shell";
-import CandlestickChart, { Candle, EmaOverlay, Marker, HorizontalLine } from "@/components/CandlestickChart";
+import CandlestickChart, { Candle, EmaOverlay, Marker, HorizontalLine, TrendLine } from "@/components/CandlestickChart";
 import { computeEMA, formatUsd } from "@/lib/utils";
 import { detectLevels, detectFVG, detectRejections, computeVolumeProfile, type PriceLevel, type FVGZone, type Rejection, type VolumeProfileBar } from "@/lib/patterns";
 import { analyzeMarket, type AnalysisResult } from "@/lib/analyzer";
@@ -221,10 +221,10 @@ export default function ChartsPage() {
     return computeVolumeProfile(candles, 24);
   }, [candles, showVolProfile]);
 
-  // Candle patterns (Marubozu, Hammer, Shooting Star, Doji, Engulfing, Dark Cloud, Harami)
+  // Candle patterns — solo los significativos (strength ≥ 2), últimas 15 velas
   const candlePatterns: CandlePattern[] = useMemo(() => {
     if (!showCandlePatterns || candles.length < 10) return [];
-    return detectCandlePatterns(candles, 40);
+    return detectCandlePatterns(candles, 15).filter((p) => p.strength >= 2);
   }, [candles, showCandlePatterns]);
 
   // Market structure (HH/HL/LH/LL)
@@ -232,6 +232,57 @@ export default function ChartsPage() {
     if (!showStructure || candles.length < 20) return { points: [], trend: "ranging" as const, description: "" };
     return detectMarketStructure(candles, 5);
   }, [candles, showStructure]);
+
+  // Trend lines: triangle boundaries + structure channels
+  const trendLines: TrendLine[] = useMemo(() => {
+    const lines: TrendLine[] = [];
+
+    // Triangle lines from analysis pivots
+    if (analysis && analysis.pivotHighs.length >= 2 && analysis.pivotLows.length >= 2) {
+      const ph = analysis.pivotHighs.slice(-3);
+      const pl = analysis.pivotLows.slice(-3);
+      // Upper trendline (connecting highs)
+      if (ph.length >= 2) {
+        lines.push({
+          points: ph.map((p) => ({ time: p.time, value: p.price })),
+          color: "#f472b680", // pink = resistance
+          lineWidth: 2,
+        });
+      }
+      // Lower trendline (connecting lows)
+      if (pl.length >= 2) {
+        lines.push({
+          points: pl.map((p) => ({ time: p.time, value: p.price })),
+          color: "#22d3ee80", // cyan = support
+          lineWidth: 2,
+        });
+      }
+    }
+
+    // Structure channels from market structure pivots
+    if (showStructure && marketStructure.points.length >= 3) {
+      const highs = marketStructure.points.filter((p) => p.label === "HH" || p.label === "LH").slice(-3);
+      const lows = marketStructure.points.filter((p) => p.label === "HL" || p.label === "LL").slice(-3);
+      if (highs.length >= 2) {
+        lines.push({
+          points: highs.map((p) => ({ time: p.time, value: p.price })),
+          color: marketStructure.trend === "uptrend" ? "#10b98160" : "#ef444460",
+          lineWidth: 1,
+          lineStyle: 2 as any, // Dashed
+        });
+      }
+      if (lows.length >= 2) {
+        lines.push({
+          points: lows.map((p) => ({ time: p.time, value: p.price })),
+          color: marketStructure.trend === "uptrend" ? "#34d39960" : "#f8717160",
+          lineWidth: 1,
+          lineStyle: 2 as any,
+        });
+      }
+    }
+
+    return lines;
+  }, [analysis, showStructure, marketStructure]);
 
   // Markers: trades (entry + exit) y signals
   const markers: Marker[] = useMemo(() => {
@@ -334,22 +385,22 @@ export default function ChartsPage() {
       }
     }
 
-    // Candlestick pattern markers (Marubozu, Hammer, etc.)
+    // Candlestick pattern markers — compactos, solo nombre corto
     if (showCandlePatterns) {
-      const patternColors: Record<string, string> = {
-        bullish: "#34d399", // emerald-400
-        bearish: "#fb923c", // orange-400
-      };
-      const strengthSymbols = ["·", "●", "★"];
       for (const cp of candlePatterns) {
         const c = candles[cp.idx];
         if (!c) continue;
+        // Nombre corto para no saturar
+        const shortName = cp.nameEn === "Marubozu" ? "MRB" :
+          cp.nameEn === "Hammer" ? "HMR" : cp.nameEn === "Shooting Star" ? "SS" :
+          cp.nameEn === "Bullish Engulfing" ? "ENG↑" : cp.nameEn === "Bearish Engulfing" ? "ENG↓" :
+          cp.nameEn === "Dark Cloud Cover" ? "DCC" : cp.nameEn === "Harami" ? "HRM" : cp.nameEn.slice(0, 3);
         m.push({
           time: c.time,
           position: cp.bias === "bullish" ? "belowBar" : "aboveBar",
-          color: patternColors[cp.bias] || "#a78bfa",
+          color: cp.bias === "bullish" ? "#34d399" : "#fb923c",
           shape: cp.strength >= 3 ? "arrowUp" : "circle",
-          text: `${strengthSymbols[cp.strength - 1] || "·"} ${cp.name}`,
+          text: shortName,
         });
       }
     }
@@ -439,31 +490,6 @@ export default function ChartsPage() {
             }
           }
         }
-      }
-    }
-
-    // Market structure: draw lines connecting pivots for channel visualization
-    if (showStructure && marketStructure.points.length >= 2) {
-      // Show the most recent high and low pivots as channel boundaries
-      const highPivots = marketStructure.points.filter((p) => p.label === "HH" || p.label === "LH");
-      const lowPivots = marketStructure.points.filter((p) => p.label === "HL" || p.label === "LL");
-      const lastHigh = highPivots[highPivots.length - 1];
-      const lastLow = lowPivots[lowPivots.length - 1];
-      if (lastHigh) {
-        lines.push({
-          price: lastHigh.price,
-          color: lastHigh.label === "HH" ? "#10b981" : "#ef4444",
-          title: `${lastHigh.label} channel`,
-          lineStyle: 1,
-        });
-      }
-      if (lastLow) {
-        lines.push({
-          price: lastLow.price,
-          color: lastLow.label === "HL" ? "#34d399" : "#f87171",
-          title: `${lastLow.label} channel`,
-          lineStyle: 1,
-        });
       }
     }
 
@@ -569,6 +595,7 @@ export default function ChartsPage() {
                 emas={emas}
                 markers={markers}
                 horizontalLines={horizontalLines}
+                trendLines={trendLines}
                 height={520}
               />
             )}
@@ -598,6 +625,15 @@ export default function ChartsPage() {
                   <button onClick={() => setAnalysisOpen(false)}
                     className="text-zinc-600 hover:text-zinc-300 text-lg leading-none">×</button>
                 </div>
+              </div>
+
+              {/* PRONÓSTICO — la sección clave */}
+              <div className="px-3 py-2.5 border-b border-zinc-800 bg-zinc-900/30">
+                <div className={`text-[12px] leading-relaxed font-medium ${
+                  analysis.action === "BUY" ? "text-emerald-300" :
+                  analysis.action === "SELL" ? "text-red-300" :
+                  analysis.action === "WATCH" ? "text-amber-200" : "text-zinc-400"
+                }`}>{analysis.forecast}</div>
               </div>
 
               {/* Indicadores como barras visuales */}
