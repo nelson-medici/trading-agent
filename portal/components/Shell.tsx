@@ -112,7 +112,10 @@ export default function Shell({ current, children }: { current: View; children: 
   useEffect(() => {
     loadAlerts();
     const iv = setInterval(loadAlerts, 15000);
-    return () => clearInterval(iv);
+    // Listen for custom event from alerts page when alerts are deleted/changed
+    const onRefresh = () => loadAlerts();
+    window.addEventListener("alerts-changed", onRefresh);
+    return () => { clearInterval(iv); window.removeEventListener("alerts-changed", onRefresh); };
   }, [supabase]);
 
   async function handleLogout() {
@@ -260,16 +263,7 @@ export default function Shell({ current, children }: { current: View; children: 
               )}
             </div>
 
-            {/* CTA Configuración (solo ícono) — oculto en mobile, está en el drawer */}
-            <Link href="/config" prefetch={false}
-              title="Configuración del sistema"
-              className={`hidden md:flex order-2 items-center justify-center border p-1.5 transition-colors ${
-                current === "config"
-                  ? "border-lime-500 text-lime-400 bg-lime-950/30"
-                  : "border-zinc-800 text-zinc-400 hover:text-zinc-200 hover:border-zinc-600"
-              }`}>
-              <SettingsIcon className="w-3.5 h-3.5" />
-            </Link>
+            {/* Config icon removed — accessible from user menu */}
 
             {/* User menu — oculto en mobile, logout está en el drawer */}
             <div className="relative hidden md:block order-1">

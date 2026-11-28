@@ -92,12 +92,15 @@ export default function AlertsPage() {
 
   const categories = useMemo(() => Array.from(new Set(alerts.map((a) => a.category))).sort(), [alerts]);
 
+  function notifyShell() { window.dispatchEvent(new Event("alerts-changed")); }
+
   async function ack(ids: string[]) {
     if (!ids.length) return;
     setBusy(true);
     await supabase.from("alerts").update({ acknowledged: true, acknowledged_at: new Date().toISOString() }).in("id", ids);
     setAlerts((prev) => prev.map((a) => ids.includes(a.id) ? { ...a, acknowledged: true } : a));
     setBusy(false);
+    notifyShell();
   }
 
   async function del(ids: string[]) {
@@ -109,6 +112,7 @@ export default function AlertsPage() {
     }
     setBusy(false);
     await load();
+    notifyShell();
   }
 
   if (loading) return null;
