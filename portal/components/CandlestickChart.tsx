@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, forwardRef, useImperativeHandle } from "react";
 import {
   createChart,
   ColorType,
@@ -64,7 +64,15 @@ function toTime(t: number | string): UTCTimestamp {
   return Math.floor(new Date(t).getTime() / 1000) as UTCTimestamp;
 }
 
-export default function CandlestickChartComponent({ candles, emas = [], markers = [], horizontalLines = [], trendLines = [], height = 480 }: Props) {
+export interface ChartHandle {
+  /** Returns the indices [from, to] of candles currently visible on screen */
+  getVisibleRange: () => { from: number; to: number } | null;
+}
+
+const CandlestickChartComponent = forwardRef<ChartHandle, Props>(function CandlestickChartInner(
+  { candles, emas = [], markers = [], horizontalLines = [], trendLines = [], height = 480 },
+  ref,
+) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const candleSeriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
@@ -72,6 +80,18 @@ export default function CandlestickChartComponent({ candles, emas = [], markers 
   const trendLineSeriesRef = useRef<ISeriesApi<"Line">[]>([]);
   const volumeSeriesRef = useRef<ISeriesApi<"Histogram"> | null>(null);
   const priceLinesRef = useRef<any[]>([]);
+  const prevCandleCountRef = useRef(0);
+
+  useImperativeHandle(ref, () => ({
+    getVisibleRange() {
+      if (!chartRef.current || candles.length === 0) return null;
+      const lr = chartRef.current.timeScale().getVisibleLogicalRange();
+      if (!lr) return null;
+      const from = Math.max(0, Math.floor(lr.from));
+      const to = Math.min(candles.length - 1, Math.ceil(lr.to));
+      return { from, to };
+    },
+  }), [candles]);
 
   // Init
   useEffect(() => {
@@ -157,7 +177,14 @@ export default function CandlestickChartComponent({ candles, emas = [], markers 
     }));
     volumeSeriesRef.current.setData(volumeData);
 
-    chartRef.current?.timeScale().fitContent();
+    // fitContent only on first load or when dataset significantly changes
+    // (symbol/timeframe change = very different count or first candle time)
+    // Don't reset zoom on periodic data refresh (same candles, maybe +1 new)
+    const countDiff = Math.abs(candles.length - prevCandleCountRef.current);
+    if (prevCandleCountRef.current === 0 || countDiff > 10) {
+      chartRef.current?.timeScale().fitContent();
+    }
+    prevCandleCountRef.current = candles.length;
   }, [candles]);
 
   // Update EMAs
@@ -240,4 +267,6 @@ export default function CandlestickChartComponent({ candles, emas = [], markers 
   }, [horizontalLines]);
 
   return <div ref={containerRef} style={{ height: `${height}px`, width: "100%" }} />;
-}
+});
+
+export default CandlestickChartComponent;

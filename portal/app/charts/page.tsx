@@ -1,9 +1,9 @@
 "use client";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase";
 import { useRouter } from "next/navigation";
 import Shell from "@/components/Shell";
-import CandlestickChart, { Candle, EmaOverlay, Marker, HorizontalLine, TrendLine } from "@/components/CandlestickChart";
+import CandlestickChart, { Candle, EmaOverlay, Marker, HorizontalLine, TrendLine, type ChartHandle } from "@/components/CandlestickChart";
 import { computeEMA, formatUsd } from "@/lib/utils";
 import { detectLevels, detectFVG, detectRejections, computeVolumeProfile, type PriceLevel, type FVGZone, type Rejection, type VolumeProfileBar } from "@/lib/patterns";
 import { analyzeMarket, type AnalysisResult } from "@/lib/analyzer";
@@ -46,6 +46,7 @@ interface StrategySignal {
 export default function ChartsPage() {
   const supabase = createClient();
   const router = useRouter();
+  const chartRef = useRef<ChartHandle>(null);
   const [loading, setLoading] = useState(true);
   const [assetClass, setAssetClass] = useState<"crypto" | "equities">("crypto");
   const [symbol, setSymbol] = useState("BTC/USDT");
@@ -658,14 +659,18 @@ export default function ChartsPage() {
           <button onClick={() => {
               if (candles.length < 20) return;
               if (patternOverlayActive) {
-                // Limpiar
                 setPatternOverlay([]);
                 setPatternOverlayActive(false);
                 setShowCandlePatterns(false);
                 setShowStructure(false);
               } else {
-                // Detectar todos los patrones y dibujarlos
-                const cp = detectChartPatterns(candles);
+                // Detectar patrones solo en las velas VISIBLES en pantalla
+                let visibleCandles = candles;
+                const range = chartRef.current?.getVisibleRange();
+                if (range && range.to - range.from >= 15) {
+                  visibleCandles = candles.slice(range.from, range.to + 1);
+                }
+                const cp = detectChartPatterns(visibleCandles);
                 setPatternOverlay(cp);
                 setPatternOverlayActive(true);
                 setShowCandlePatterns(true);
@@ -718,6 +723,7 @@ export default function ChartsPage() {
               </div>
             ) : (
               <CandlestickChart
+                ref={chartRef}
                 candles={candles}
                 emas={emas}
                 markers={markers}
