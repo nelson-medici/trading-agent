@@ -726,6 +726,18 @@ export default function ChartsPage() {
             ))}
           </div>
 
+          {candles.length > 1 && (
+            <span className="text-[10px] text-zinc-600 font-mono tabular-nums ml-2">
+              {(() => {
+                const fmt = (t: number | string) => {
+                  const d = typeof t === "string" ? new Date(t) : new Date(t * 1000);
+                  return d.toLocaleDateString("es-AR", { day: "2-digit", month: "short" }) + " " + d.toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit", hour12: false });
+                };
+                return `${fmt(candles[0].time)} → ${fmt(candles[candles.length - 1].time)}`;
+              })()}
+            </span>
+          )}
+
           <button onClick={() => {
               if (candles.length < 20) return;
               const result = analyzeMarket(candles, symbol, timeframe);
