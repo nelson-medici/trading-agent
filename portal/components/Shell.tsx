@@ -98,18 +98,18 @@ export default function Shell({ current, children }: { current: View; children: 
   }, [supabase]);
 
   // Carga de alertas (unread + últimas por si no hay)
+  async function loadAlerts() {
+    const { data } = await supabase
+      .from("alerts")
+      .select("id, level, category, title, message, metadata, acknowledged, created_at")
+      .order("created_at", { ascending: false })
+      .limit(20);
+    if (data) setAlerts(data.map((a: any) => ({
+      id: a.id, severity: a.level, category: a.category, title: a.title, detail: a.message,
+      href: a.metadata?.href ?? null, acknowledged: a.acknowledged, created_at: a.created_at,
+    })));
+  }
   useEffect(() => {
-    async function loadAlerts() {
-      const { data } = await supabase
-        .from("alerts")
-        .select("id, level, category, title, message, metadata, acknowledged, created_at")
-        .order("created_at", { ascending: false })
-        .limit(20);
-      if (data) setAlerts(data.map((a: any) => ({
-        id: a.id, severity: a.level, category: a.category, title: a.title, detail: a.message,
-        href: a.metadata?.href ?? null, acknowledged: a.acknowledged, created_at: a.created_at,
-      })));
-    }
     loadAlerts();
     const iv = setInterval(loadAlerts, 15000);
     return () => clearInterval(iv);
@@ -211,7 +211,7 @@ export default function Shell({ current, children }: { current: View; children: 
 
             {/* Campanita de notificaciones (a la derecha de config) */}
             <div className="relative order-3">
-              <button onClick={() => setNotifOpen(!notifOpen)}
+              <button onClick={() => { if (!notifOpen) loadAlerts(); setNotifOpen(!notifOpen); }}
                 title={unreadCount > 0 ? `${unreadCount} alerta${unreadCount === 1 ? "" : "s"} sin leer` : "Sin alertas nuevas"}
                 className={`relative flex items-center justify-center border p-1.5 transition-colors ${
                   unreadCount > 0
