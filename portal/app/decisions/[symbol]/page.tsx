@@ -41,6 +41,28 @@ interface Decision {
   pool: string | null;
 }
 
+interface Features {
+  rsi: number | null;
+  macd: number | null;
+  macd_signal: number | null;
+  macd_hist: number | null;
+  sma_20: number | null;
+  sma_50: number | null;
+  sma_200: number | null;
+  atr: number | null;
+  adx: number | null;
+  volume_ratio: number | null;
+  price_above_sma200: boolean | null;
+  regime: string | null;
+  fear_greed: number | null;
+  ts: string;
+}
+
+interface PoolConfig {
+  thresholds: { candidate: number; watchlist: number; aggressive: number; ignore_below: number };
+  weights: Record<string, number>;
+}
+
 interface Trade {
   id: string;
   symbol: string;
@@ -68,6 +90,8 @@ export default function SymbolDetailPage() {
   const [decisions, setDecisions] = useState<Decision[]>([]);
   const [trades, setTrades] = useState<Trade[]>([]);
   const [expandedDecision, setExpandedDecision] = useState<string | null>(null);
+  const [features, setFeatures] = useState<Features | null>(null);
+  const [poolConfig, setPoolConfig] = useState<PoolConfig | null>(null);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -87,6 +111,17 @@ export default function SymbolDetailPage() {
       if (sc.data) setScoreHistory(sc.data as Score[]);
       if (dc.data) setDecisions(dc.data as Decision[]);
       if (tr.data) setTrades(tr.data as Trade[]);
+
+      // Load features for current analysis
+      const ft = await supabase.from("features").select("*").eq("symbol", symbol).order("ts", { ascending: false }).limit(1);
+      if (ft.data?.[0]) setFeatures(ft.data[0] as Features);
+
+      // Load pool config for thresholds
+      const pool = sc.data?.[0]?.pool;
+      if (pool) {
+        const pc = await supabase.from("config").select("value").eq("key", `pools.${pool}`).limit(1);
+        if (pc.data?.[0]?.value) setPoolConfig(pc.data[0].value as PoolConfig);
+      }
     }
     load();
     const iv = setInterval(load, 20000);
@@ -184,6 +219,48 @@ export default function SymbolDetailPage() {
             <div className="mt-3 text-[11px] text-zinc-500 flex items-center gap-4">
               <span>High-confidence check: {current.passes_high_confidence ? <span className="text-emerald-400">PASS</span> : <span className="text-zinc-500">NO</span>}</span>
               <span>· {current.indicators_aligned ?? 0} indicadores alineados</span>
+            </div>
+          </section>
+        )}
+
+        {/* Situación actual — qué estamos monitoreando */}
+        {current && features && poolConfig && (
+          <section>
+            <h2 className="text-[11px] uppercase tracking-[0.2em] text-zinc-500 mb-2">// Situación actual</h2>
+            <div className="border border-zinc-800 bg-zinc-950 p-4 space-y-4">
+              {/* What state means + what's needed */}
+              <WatchlistExplainer score={current} features={features} config={poolConfig} />
+
+              {/* Key indicators */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                <Indicator label="RSI" value={features.rsi?.toFixed(1) ?? "—"}
+                  status={Number(features.rsi) < 30 ? "warn" : Number(features.rsi) > 70 ? "warn" : "ok"}
+                  hint={Number(features.rsi) < 30 ? "Sobreventa" : Number(features.rsi) > 70 ? "Sobrecompra" : "Neutral"} />
+                <Indicator label="MACD" value={Number(features.macd_hist) > 0 ? "Positivo" : "Negativo"}
+                  status={Number(features.macd_hist) > 0 ? "ok" : "warn"}
+                  hint={Number(features.macd_hist) > 0 ? "Momentum alcista" : "Momentum bajista"} />
+                <Indicator label="ADX" value={features.adx?.toFixed(1) ?? "—"}
+                  status={Number(features.adx) > 25 ? "ok" : "neutral"}
+                  hint={Number(features.adx) > 25 ? "Tendencia fuerte" : "Sin tendencia clara"} />
+                <Indicator label="Vol. relativo" value={`${features.volume_ratio?.toFixed(2) ?? "—"}×`}
+                  status={Number(features.volume_ratio) > 1.5 ? "ok" : Number(features.volume_ratio) < 0.5 ? "warn" : "neutral"}
+                  hint={Number(features.volume_ratio) > 1.5 ? "Volumen alto" : Number(features.volume_ratio) < 0.5 ? "Volumen muy bajo" : "Normal"} />
+              </div>
+
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                <Indicator label="Sobre SMA200" value={features.price_above_sma200 ? "Sí" : "No"}
+                  status={features.price_above_sma200 ? "ok" : "warn"}
+                  hint={features.price_above_sma200 ? "Tendencia alcista macro" : "Tendencia bajista macro"} />
+                <Indicator label="Régimen" value={features.regime === "risk_on" ? "Risk On" : "Risk Off"}
+                  status={features.regime === "risk_on" ? "ok" : "warn"}
+                  hint={features.regime === "risk_on" ? "Mercado favorable" : "Mercado defensivo"} />
+                <Indicator label="Fear & Greed" value={features.fear_greed?.toString() ?? "—"}
+                  status={Number(features.fear_greed) > 50 ? "ok" : Number(features.fear_greed) < 25 ? "warn" : "neutral"}
+                  hint={Number(features.fear_greed) > 75 ? "Codicia extrema" : Number(features.fear_greed) > 50 ? "Codicia" : Number(features.fear_greed) > 25 ? "Miedo" : "Miedo extremo"} />
+                <Indicator label="SMA 20/50" value={Number(features.sma_20) > Number(features.sma_50) ? "Alcista" : "Bajista"}
+                  status={Number(features.sma_20) > Number(features.sma_50) ? "ok" : "warn"}
+                  hint={Number(features.sma_20) > Number(features.sma_50) ? "SMA20 > SMA50 (golden)" : "SMA20 < SMA50 (death)"} />
+              </div>
             </div>
           </section>
         )}
@@ -397,6 +474,117 @@ function statusBadge(s: string): string {
     rejected: "border-red-700 text-red-400 bg-red-950/30",
     canceled: "border-zinc-800 text-zinc-500",
   }[s] || "border-zinc-800 text-zinc-500";
+}
+
+function WatchlistExplainer({ score, features, config }: { score: Score; features: Features; config: PoolConfig }) {
+  const state = score.state;
+  const total = score.score_total;
+  const nextThreshold = state === "IGNORE" ? config.thresholds.watchlist
+    : state === "WATCHLIST" ? config.thresholds.candidate
+    : state === "CANDIDATE" ? config.thresholds.aggressive
+    : null;
+  const gap = nextThreshold ? (nextThreshold - total).toFixed(1) : null;
+  const nextState = state === "IGNORE" ? "WATCHLIST" : state === "WATCHLIST" ? "CANDIDATE" : state === "CANDIDATE" ? "AGGRESSIVE" : null;
+
+  // Identify weak components
+  const components = [
+    { name: "Técnico", value: score.score_technical ?? 0, weight: config.weights.technical ?? 0.4 },
+    { name: "Fundamental", value: score.score_fundamental ?? 0, weight: config.weights.fundamental ?? 0.2 },
+    { name: "Sentimiento", value: score.score_sentiment ?? 0, weight: config.weights.sentiment ?? 0.15 },
+    { name: "Riesgo", value: score.score_risk ?? 0, weight: config.weights.risk ?? 0.15 },
+    { name: "Timing", value: score.score_timing ?? 0, weight: config.weights.timing ?? 0.1 },
+  ];
+  const weak = components.filter(c => c.value < 60).sort((a, b) => a.value - b.value);
+  const strong = components.filter(c => c.value >= 75).sort((a, b) => b.value - a.value);
+
+  // Build conditions needed
+  const needs: string[] = [];
+  if (Number(features.rsi) < 30) needs.push("RSI salga de sobreventa (> 30)");
+  if (Number(features.rsi) > 70) needs.push("RSI baje de sobrecompra (< 70)");
+  if (Number(features.macd_hist) < 0) needs.push("MACD cruce a positivo (momentum alcista)");
+  if (!features.price_above_sma200) needs.push("Precio supere la SMA 200 (tendencia alcista)");
+  if (Number(features.volume_ratio) < 0.8) needs.push("Volumen aumente (ratio > 1.0)");
+  if (features.regime === "risk_off") needs.push("Mercado cambie a Risk On");
+  if (Number(features.fear_greed) < 25) needs.push("Fear & Greed suba de miedo extremo (> 25)");
+  if (Number(features.adx) < 20) needs.push("ADX suba para confirmar tendencia (> 25)");
+
+  const stateText: Record<string, string> = {
+    IGNORE: "El sistema no considera este activo para operar. El score está demasiado bajo.",
+    WATCHLIST: "El sistema está monitoreando este activo. Muestra señales interesantes pero no son suficientes para operar.",
+    CANDIDATE: "El activo es candidato para entrada. Si pasa el check de alta confianza, el sistema puede ejecutar.",
+    AGGRESSIVE: "Señal fuerte. El sistema puede entrar con posición agresiva.",
+    ENTERED: "El sistema tiene una posición abierta en este activo.",
+  };
+
+  return (
+    <div className="space-y-3">
+      {/* State explanation */}
+      <div className="flex items-start gap-3">
+        <div className={`w-2 h-2 rounded-full mt-1.5 flex-shrink-0 ${
+          state === "ENTERED" || state === "AGGRESSIVE" ? "bg-lime-400" :
+          state === "CANDIDATE" ? "bg-emerald-400" :
+          state === "WATCHLIST" ? "bg-amber-400" : "bg-zinc-600"
+        }`} />
+        <div>
+          <div className="text-sm text-zinc-200">{stateText[state] || "Estado desconocido."}</div>
+          {gap && nextState && (
+            <div className="text-[11px] text-zinc-500 mt-1">
+              Faltan <span className="text-amber-400 font-medium">{gap} puntos</span> para pasar a <span className="uppercase text-zinc-300">{nextState}</span> (threshold {nextThreshold}).
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* What needs to improve */}
+      {needs.length > 0 && state !== "ENTERED" && (
+        <div className="border-l-2 border-amber-800 pl-3">
+          <div className="text-[10px] uppercase tracking-wider text-zinc-500 mb-1">Qué necesita pasar para operar</div>
+          <ul className="space-y-1">
+            {needs.slice(0, 4).map((n, i) => (
+              <li key={i} className="text-[11px] text-amber-300 flex items-center gap-2">
+                <span className="text-zinc-600">→</span> {n}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {/* Strengths */}
+      {strong.length > 0 && (
+        <div className="border-l-2 border-emerald-800 pl-3">
+          <div className="text-[10px] uppercase tracking-wider text-zinc-500 mb-1">A favor</div>
+          <div className="text-[11px] text-emerald-300">
+            {strong.map(s => `${s.name} (${s.value.toFixed(0)})`).join(" · ")}
+          </div>
+        </div>
+      )}
+
+      {/* Weaknesses */}
+      {weak.length > 0 && (
+        <div className="border-l-2 border-red-900 pl-3">
+          <div className="text-[10px] uppercase tracking-wider text-zinc-500 mb-1">En contra</div>
+          <div className="text-[11px] text-red-400">
+            {weak.map(w => `${w.name} (${w.value.toFixed(0)})`).join(" · ")}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Indicator({ label, value, status, hint }: { label: string; value: string; status: "ok" | "warn" | "neutral"; hint: string }) {
+  const colors = { ok: "border-emerald-900 text-emerald-400", warn: "border-red-900 text-red-400", neutral: "border-zinc-800 text-zinc-400" };
+  const dots = { ok: "bg-emerald-400", warn: "bg-red-400", neutral: "bg-zinc-600" };
+  return (
+    <div className={`border ${colors[status]} bg-zinc-950 p-2.5`}>
+      <div className="text-[9px] uppercase tracking-wider text-zinc-500">{label}</div>
+      <div className="flex items-center gap-2 mt-1">
+        <span className={`w-1.5 h-1.5 rounded-full ${dots[status]}`} />
+        <span className="text-sm font-light tabular-nums">{value}</span>
+      </div>
+      <div className="text-[9px] text-zinc-600 mt-0.5">{hint}</div>
+    </div>
+  );
 }
 
 function exitReasonBadge(r: string | null): string {
