@@ -731,6 +731,15 @@ async def run_trigger_monitor() -> None:
         log.error("trigger_monitor_failed", error=str(e), exc_info=True)
 
 
+async def run_auto_analyzer() -> None:
+    """Cada 15 min. Analiza patrones en todos los símbolos y crea triggers automáticos."""
+    try:
+        from src.patterns.auto_analyzer import run_auto_analyzer
+        await run_auto_analyzer()
+    except Exception as e:
+        log.error("auto_analyzer_failed", error=str(e), exc_info=True)
+
+
 # ============================================================
 # ROLLOVER / BACKUP / REPORTS
 # ============================================================

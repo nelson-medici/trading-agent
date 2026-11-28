@@ -785,37 +785,12 @@ export default function ChartsPage() {
                 </div>
               )}
 
-              {/* Trigger — compacto */}
+              {/* Trigger — automático */}
               {analysis.triggerCondition && (
-                <div className="px-3 py-2 border-t border-amber-900/30 bg-amber-950/5 flex items-center gap-2">
+                <div className="px-3 py-1.5 border-t border-amber-900/30 bg-amber-950/5 flex items-center gap-2">
                   <Eye className="w-3 h-3 text-amber-400 flex-shrink-0" />
-                  <span className="text-[10px] text-amber-200/80 flex-1 truncate">{analysis.triggerCondition}</span>
-                  <button onClick={async () => {
-                    const pending = analysis.patterns.find((p) => !p.confirmed);
-                    if (!pending) return;
-                    let triggerType = "breakout_above";
-                    let triggerPrice = analysis.price;
-                    const nearRes = analysis.levels.find((l) => l.kind === "resistance" && l.price > analysis.price);
-                    const nearSup = analysis.levels.find((l) => l.kind === "support" && l.price < analysis.price);
-                    if (pending.bias === "bullish" && nearRes) { triggerType = "breakout_above"; triggerPrice = nearRes.price; }
-                    else if (pending.bias === "bearish" && nearSup) { triggerType = "breakout_below"; triggerPrice = nearSup.price; }
-                    else if (pending.name.includes("RSI") && pending.bias === "bullish") triggerType = "rsi_cross_above";
-                    else if (pending.name.includes("RSI") && pending.bias === "bearish") triggerType = "rsi_cross_below";
-                    const { error } = await supabase.from("pattern_triggers").insert({
-                      symbol, timeframe, pattern_name: pending.name, bias: pending.bias,
-                      confirmation_rule: pending.confirmationRule, trigger_type: triggerType,
-                      trigger_price: triggerType.startsWith("breakout") ? triggerPrice : null,
-                      trigger_rsi: triggerType.startsWith("rsi") ? (pending.bias === "bullish" ? 30 : 70) : null,
-                      require_volume: true, action: pending.bias === "bullish" ? "BUY" : "ALERT_ONLY",
-                      pool: "tactical", max_capital_usd: 25,
-                      expires_at: new Date(Date.now() + 24 * 3600_000).toISOString(),
-                      analysis_snapshot: analysis, created_by: "manual",
-                    });
-                    if (!error) alert(`Trigger creado: ${pending.name} en ${symbol}`);
-                  }}
-                    className="text-[9px] uppercase tracking-wider text-amber-400 hover:text-amber-200 flex-shrink-0">
-                    vigilar
-                  </button>
+                  <span className="text-[10px] text-amber-200/80 flex-1">{analysis.triggerCondition}</span>
+                  <span className="text-[8px] uppercase tracking-wider text-zinc-600 flex-shrink-0">auto</span>
                 </div>
               )}
 
